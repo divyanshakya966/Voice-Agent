@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.onnx binary
+*.bin binary
+*.gguf binary
+*.ggml binary
