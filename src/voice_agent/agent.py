@@ -242,9 +242,37 @@ class Agent:
         else:
             args = {}
         schema = tool.parameters
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            unknown = sorted(set(args) - set(properties))
+            if unknown:
+                return f"ERROR: unsupported argument(s): {', '.join(unknown)}."
         for required in schema.get("required", []):
             if required not in args:
                 return f"ERROR: missing required argument '{required}'."
+        for key, value in args.items():
+            specification = properties.get(key, {})
+            expected = specification.get("type")
+            valid = (
+                expected is None
+                or expected == "string" and isinstance(value, str)
+                or expected == "object" and isinstance(value, dict)
+                or expected == "array" and isinstance(value, list)
+                or expected == "boolean" and isinstance(value, bool)
+                or expected == "integer" and isinstance(value, int) and not isinstance(value, bool)
+                or expected == "number" and isinstance(value, (int, float)) and not isinstance(value, bool)
+            )
+            if not valid:
+                return f"ERROR: argument '{key}' must be {expected}."
+            if "enum" in specification and value not in specification["enum"]:
+                return f"ERROR: unsupported value for '{key}'."
+            if isinstance(value, str) and "maxLength" in specification and len(value) > specification["maxLength"]:
+                return f"ERROR: argument '{key}' is too long."
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if "minimum" in specification and value < specification["minimum"]:
+                    return f"ERROR: argument '{key}' is below the minimum."
+                if "maximum" in specification and value > specification["maximum"]:
+                    return f"ERROR: argument '{key}' is above the maximum."
         summary = tool.describe(args)
         if tool.dangerous:
             preview = self._preview(name, args)

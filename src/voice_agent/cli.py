@@ -149,6 +149,14 @@ def _wake_process(pid: int) -> bool:
     return "voice_agent" in command and " wake" in f" {command}"
 
 
+def _create_wake_lock() -> None:
+    fd = os.open(WAKE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, str(os.getpid()).encode("ascii"))
+    finally:
+        os.close(fd)
+
+
 def _stop(args) -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     atomic_write(WAKE_STOP_PATH, "stop\n", mode=0o600)
@@ -182,12 +190,21 @@ def _wake(args) -> int:
     agent = Agent(config, cwd=Path(args.cwd) if args.cwd else None, model=args.model, notifier=notify)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        fd = os.open(WAKE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.write(fd, str(os.getpid()).encode("ascii"))
-        os.close(fd)
+        _create_wake_lock()
     except FileExistsError:
-        print("A wake session is already running.", file=sys.stderr)
-        return 1
+        try:
+            pid = int(WAKE_LOCK_PATH.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            pid = 0
+        if pid and _wake_process(pid):
+            print("A wake session is already running.", file=sys.stderr)
+            return 1
+        WAKE_LOCK_PATH.unlink(missing_ok=True)
+        try:
+            _create_wake_lock()
+        except FileExistsError:
+            print("A wake session is already running.", file=sys.stderr)
+            return 1
     WAKE_STOP_PATH.unlink(missing_ok=True)
     stop_requested = WAKE_STOP_PATH.exists
     stop_phrases = {"stop", "goodbye", "exit", "quit", "go to sleep", "thats all", "that's all"}
@@ -250,21 +267,26 @@ def _wake(args) -> int:
             speech_started = time.monotonic()
             if barge_in:
                 interrupted_wav: list[Path | None] = []
+                capture_error: list[Exception] = []
                 speech_detected = threading.Event()
                 capture_stop = threading.Event()
                 capture_ready = threading.Event()
 
                 def capture_interruption() -> None:
-                    interrupted_wav.append(
-                        record_utterance(
-                            config,
-                            silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
-                            beeps=False,
-                            stop_requested=lambda: stop_requested() or capture_stop.is_set(),
-                            speech_started=speech_detected.set,
-                            capture_ready=capture_ready.set,
+                    try:
+                        interrupted_wav.append(
+                            record_utterance(
+                                config,
+                                silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
+                                beeps=False,
+                                stop_requested=lambda: stop_requested() or capture_stop.is_set(),
+                                speech_started=speech_detected.set,
+                                capture_ready=capture_ready.set,
+                            )
                         )
-                    )
+                    except Exception as exc:
+                        capture_error.append(exc)
+                        capture_stop.set()
 
                 capture_thread = threading.Thread(target=capture_interruption, name="jarvis-barge-in", daemon=True)
                 capture_thread.start()
@@ -277,6 +299,8 @@ def _wake(args) -> int:
                 if not speech_detected.is_set():
                     capture_stop.set()
                 capture_thread.join()
+                if capture_error:
+                    agent.audit.write("barge_in_error", error=repr(capture_error[0]))
                 interrupted = interrupted_wav[0] if interrupted_wav else None
                 if speech_detected.is_set() and interrupted:
                     try:

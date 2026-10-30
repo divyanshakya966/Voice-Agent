@@ -65,7 +65,7 @@ def chat(config: dict, messages: list[dict], tools: list[dict] | None = None, mo
         "options": {
             "temperature": float(cfg_get(config, "llm.temperature", 0.2)),
             "num_ctx": int(cfg_get(config, "llm.num_ctx", 4096)),
-            "num_predict": int(cfg_get(config, "llm.num_predict", 600)),
+            "num_predict": int(cfg_get(config, "llm.num_predict", 192)),
         },
     }
     if tools:

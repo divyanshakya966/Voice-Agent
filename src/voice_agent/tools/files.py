@@ -149,11 +149,11 @@ def _list_files(args: dict, ctx: ToolContext) -> str:
     lines = [f"{path}:"]
     for entry in entries[:200]:
         try:
-            if entry.is_dir(follow_symlinks=False):
-                kind = "dir"
-                size = ""
-            elif entry.is_symlink():
+            if entry.is_symlink():
                 kind = "link"
+                size = ""
+            elif entry.is_dir():
+                kind = "dir"
                 size = ""
             else:
                 kind = "file"
