@@ -10,8 +10,8 @@ import tempfile
 import time
 import wave
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .config import CACHE_DIR, cfg_get
 from .util import which
@@ -171,7 +171,9 @@ def record_utterance(
         )
     except OSError as exc:
         raise AudioError(f"Cannot start microphone capture: {exc}") from exc
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        proc.kill()
+        raise AudioError("Microphone capture did not provide an output stream.")
     fd = proc.stdout.fileno()
 
     chunks: list[bytes] = []
@@ -307,7 +309,9 @@ def record_fixed(config: dict, seconds: float) -> Path:
     chunk_bytes = int(rate * 0.05) * 2
     chunks: list[bytes] = []
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        proc.kill()
+        raise AudioError("Fixed capture did not provide an output stream.")
     deadline = time.monotonic() + seconds
     try:
         while time.monotonic() < deadline:

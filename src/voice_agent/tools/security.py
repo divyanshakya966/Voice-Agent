@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..util import redact, run, trim
 from .base import Tool, ToolContext, ToolError
-from .files import SKIP_DIRS, SENSITIVE_NAMES, _resolve, _sensitive
+from .files import SENSITIVE_NAMES, SKIP_DIRS, _resolve, _sensitive
 
 SECRET_PATTERNS = [
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
@@ -58,7 +58,7 @@ def _secret_scan(root: Path) -> list[str]:
 
 def _permission_scan(root: Path) -> list[str]:
     findings: list[str] = []
-    paths = [root] if root.is_file() else [root]
+    paths = [root]
     if root.is_dir():
         for current, dirs, files in os.walk(root, followlinks=False):
             dirs[:] = [name for name in dirs if name not in SKIP_DIRS]

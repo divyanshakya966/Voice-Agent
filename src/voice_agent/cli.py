@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import signal
-import shutil
 import sys
 import threading
 import time
@@ -12,9 +11,17 @@ from pathlib import Path
 
 from . import llm, stt, tts
 from .agent import Agent
-from .audio import AudioError, record_fixed, record_utterance
+from .audio import record_fixed, record_utterance
 from .audit import AuditLog
-from .config import CONFIG_DIR, CONFIG_PATH, DATA_DIR, STATE_DIR, cfg_get, expand_path, load_config, save_config
+from .config import (
+    CONFIG_PATH,
+    DATA_DIR,
+    STATE_DIR,
+    cfg_get,
+    expand_path,
+    load_config,
+    save_config,
+)
 from .sandbox import available as bwrap_available
 from .sandbox import run_sandboxed
 from .tools import build_registry
@@ -223,9 +230,8 @@ def _wake(args) -> int:
     try:
         greeting = "Jarvis is awake. What would you like me to do?"
         notify("Jarvis", greeting)
-        if not tts.speak(greeting, config, force=True, stop_requested=stop_requested):
-            if not stop_requested():
-                print(f"Assistant: {greeting}")
+        if not tts.speak(greeting, config, force=True, stop_requested=stop_requested) and not stop_requested():
+            print(f"Assistant: {greeting}")
         warmup_thread.join()
         if warmup_error:
             agent.audit.write("llm_warmup_error", error=repr(warmup_error[0]))
@@ -272,21 +278,27 @@ def _wake(args) -> int:
                 capture_stop = threading.Event()
                 capture_ready = threading.Event()
 
-                def capture_interruption() -> None:
+                def capture_interruption(
+                    wav_target=interrupted_wav,
+                    error_target=capture_error,
+                    stop_event=capture_stop,
+                    speech_event=speech_detected,
+                    ready_event=capture_ready,
+                ) -> None:
                     try:
-                        interrupted_wav.append(
+                        wav_target.append(
                             record_utterance(
                                 config,
                                 silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
                                 beeps=False,
-                                stop_requested=lambda: stop_requested() or capture_stop.is_set(),
-                                speech_started=speech_detected.set,
-                                capture_ready=capture_ready.set,
+                                stop_requested=lambda: stop_requested() or stop_event.is_set(),
+                                speech_started=speech_event.set,
+                                capture_ready=ready_event.set,
                             )
                         )
                     except Exception as exc:
-                        capture_error.append(exc)
-                        capture_stop.set()
+                        error_target.append(exc)
+                        stop_event.set()
 
                 capture_thread = threading.Thread(target=capture_interruption, name="jarvis-barge-in", daemon=True)
                 capture_thread.start()
@@ -294,7 +306,8 @@ def _wake(args) -> int:
                 spoke = tts.speak(
                     response,
                     config,
-                    stop_requested=lambda: stop_requested() or speech_detected.is_set(),
+                    stop_requested=lambda stop_check=stop_requested, speech_event=speech_detected: stop_check()
+                    or speech_event.is_set(),
                 )
                 if not speech_detected.is_set():
                     capture_stop.set()

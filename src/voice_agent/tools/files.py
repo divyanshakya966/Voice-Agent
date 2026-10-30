@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..config import STATE_DIR, cfg_get, expand_path
 from ..sandbox import SandboxError, git_root, run_sandboxed
-from ..util import atomic_write, redact, run, trim
+from ..util import atomic_write, redact, trim
 from .base import Tool, ToolContext, ToolError
 
 SENSITIVE_DIRS = {
@@ -71,15 +71,11 @@ def _sensitive(path: Path) -> bool:
     lowered = [part.lower() for part in path.parts]
     for bad in SENSITIVE_DIRS:
         bad_parts = bad.lower().split("/")
-        for index in range(0, len(lowered) - len(bad_parts) + 1):
+        for index in range(len(lowered) - len(bad_parts) + 1):
             if lowered[index : index + len(bad_parts)] == bad_parts:
                 return True
     name = path.name.lower()
-    if name in SENSITIVE_NAMES:
-        return True
-    if any(name.endswith(suffix) for suffix in SENSITIVE_SUFFIXES):
-        return True
-    return False
+    return name in SENSITIVE_NAMES or any(name.endswith(suffix) for suffix in SENSITIVE_SUFFIXES)
 
 
 def _case_insensitive(path: Path, roots: list[Path]) -> Path | None:
@@ -353,9 +349,9 @@ def _validate_check(command: str) -> list[str]:
         if args[0].startswith("-"):
             raise ToolError("Global git options are not allowed; start with a subcommand.")
         for arg in args:
-            if arg == "-c" or (arg.startswith("-c") and not arg.startswith("--")):
+            if arg.startswith("-c") and not arg.startswith("--"):
                 raise ToolError("git -c is not allowed.")
-            if arg.startswith("--config-env") or arg.startswith("--exec-path"):
+            if arg.startswith(("--config-env", "--exec-path")):
                 raise ToolError("That git option is not allowed.")
         subcommand = args[0]
         if subcommand not in ALLOWED_GIT:
@@ -368,9 +364,12 @@ def _validate_check(command: str) -> list[str]:
                 raise ToolError("git branch is limited to listing branches.")
         if subcommand == "remote":
             extra = args[1:]
-            if extra and extra not in (["-v"], ["--verbose"], ["show"], ["get-url", extra[-1]]):
-                if not (extra and extra[0] in {"show", "get-url"} and len(extra) <= 2):
-                    raise ToolError("git remote is limited to listing and URL reads.")
+            if (
+                extra
+                and extra not in (["-v"], ["--verbose"], ["show"], ["get-url", extra[-1]])
+                and not (extra[0] in {"show", "get-url"} and len(extra) <= 2)
+            ):
+                raise ToolError("git remote is limited to listing and URL reads.")
             if extra and extra[0] == "get-url" and len(extra) != 2:
                 raise ToolError("git remote get-url needs exactly one remote name.")
         if subcommand == "grep":

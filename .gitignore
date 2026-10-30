@@ -6,6 +6,11 @@ config.json
 config.local.json
 secrets.json
 *.secret
+*.token
+*.credentials
+*.gpg
+*.asc
+*.kdbx
 *.pem
 *.key
 *.p12
@@ -22,6 +27,7 @@ backups/
 state/
 data/
 cache/
+.cache/
 logs/
 recordings/
 screenshots/

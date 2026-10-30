@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .config import cfg_get
@@ -13,6 +14,9 @@ class OllamaError(RuntimeError):
 
 def _url(config: dict, path: str) -> str:
     base = str(cfg_get(config, "llm.url", "http://127.0.0.1:11434")).rstrip("/")
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise OllamaError("llm.url must use an http or https URL with a host.")
     return base + path
 
 
@@ -24,7 +28,7 @@ def _request(config: dict, path: str, payload: dict | None = None, timeout: floa
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(_url(config, path), data=data, headers=headers, method="POST" if data else "GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout or float(cfg_get(config, "llm.timeout", 180))) as response:
+        with urllib.request.urlopen(request, timeout=timeout or float(cfg_get(config, "llm.timeout", 180))) as response:  # nosec B310: _url permits only http/https with a host
             body = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")

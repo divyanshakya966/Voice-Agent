@@ -6,8 +6,8 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import llm, tts
 from .audio import AudioError, record_utterance
@@ -170,8 +170,8 @@ class Agent:
                 self.config,
                 force=True,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            self.audit.write("voice_confirmation_tts_error", error=repr(exc))
         time.sleep(0.35)
         try:
             wav = record_utterance(

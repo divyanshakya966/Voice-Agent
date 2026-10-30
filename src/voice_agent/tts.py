@@ -4,8 +4,8 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .audio import play_file
 from .config import CACHE_DIR, cfg_get, expand_path, find_executable

@@ -38,7 +38,7 @@ class SecurityGuardTests(unittest.TestCase):
             self.assertEqual(lock_path.read_text(encoding="ascii"), str(cli.os.getpid()))
 
     def test_llm_default_generation_limit_is_bounded(self) -> None:
-        import voice_agent.llm as llm
+        from voice_agent import llm
 
         captured = []
         with patch.object(llm, "_request", side_effect=lambda config, path, payload, timeout=None: captured.append(payload) or {"message": {}}):
