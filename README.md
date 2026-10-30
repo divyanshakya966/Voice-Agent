@@ -1,4 +1,4 @@
-# Aegis Voice Agent
+# Jarvis Voice Agent
 
 A private, local-first push-to-talk voice assistant for Linux desktops. Speech recognition, language inference, and text-to-speech run on your machine. The assistant can inspect system status, control a small set of desktop actions, read and search files, run allowlisted development checks in a sandbox, and perform read-only security scans through a fixed tool registry.
 
@@ -9,12 +9,12 @@ This is a working prototype, not a general-purpose autonomous agent. It has no a
 - Offline speech-to-text with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
 - Offline text-to-speech with [Piper](https://github.com/rhasspy/piper), with `espeak-ng` fallback
 - Local language model through [Ollama](https://ollama.com)
-- Push-to-talk, one command per invocation
+- Explicit wake/stop voice sessions with bounded in-memory conversation history
 - Fixed tool allowlist instead of open-ended shell access
 - GUI, voice, or terminal confirmation for writes, commands, and clipboard reads
 - Bubblewrap sandbox for development checks, network disabled by default
 - Audit log with best-effort secret redaction
-- Model unloads after 10 seconds of inactivity by default
+- Jarvis keeps the local model warm during active use and unloads it when stopped
 - No telemetry
 
 ## Requirements
@@ -48,7 +48,7 @@ ollama pull qwen3:1.7b
 
 If `~/.local/bin` is not on your `PATH`, use `./bin/voice-agent` or the absolute path printed by the installer.
 
-## Push-to-talk
+## Wake activation
 
 Install the desktop entry and bind a shortcut:
 

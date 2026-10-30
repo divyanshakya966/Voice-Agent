@@ -49,6 +49,7 @@ DEFAULT_CONFIG = {
         "max_seconds": 20,
         "start_timeout": 6,
         "beeps": False,
+        "barge_in": False,
     },
     "stt": {
         "language": "en",
@@ -74,6 +75,7 @@ DEFAULT_CONFIG = {
     },
     "agent": {
         "confirmation": "gui",
+        "session_history_messages": 24,
         "allowed_read_roots": [
             "~/GitHub",
             "~/Projects",

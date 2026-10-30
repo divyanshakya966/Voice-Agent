@@ -60,7 +60,7 @@ def chat(config: dict, messages: list[dict], tools: list[dict] | None = None, mo
         "model": model,
         "messages": messages,
         "stream": False,
-        "keep_alive": str(cfg_get(config, "llm.keep_alive", "10s")),
+        "keep_alive": str(cfg_get(config, "llm.keep_alive", "30m")),
         "think": bool(cfg_get(config, "llm.thinking", False)),
         "options": {
             "temperature": float(cfg_get(config, "llm.temperature", 0.2)),
@@ -94,6 +94,22 @@ def unload(config: dict, model: str | None = None) -> None:
             "keep_alive": 0,
         },
         timeout=10,
+    )
+
+
+def warmup(config: dict, model: str | None = None) -> None:
+    model = model or str(cfg_get(config, "llm.model", "qwen3:1.7b"))
+    _request(
+        config,
+        "/api/generate",
+        {
+            "model": model,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": str(cfg_get(config, "llm.keep_alive", "30m")),
+            "options": {"num_predict": 1},
+        },
+        timeout=120,
     )
 
 

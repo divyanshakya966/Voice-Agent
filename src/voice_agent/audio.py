@@ -144,6 +144,8 @@ def record_utterance(
     calibration_ms: int | None = None,
     beeps: bool | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    speech_started: Callable[[], None] | None = None,
+    capture_ready: Callable[[], None] | None = None,
 ) -> Path | None:
     rate = int(cfg_get(config, "audio.rate", 16000))
     chunk_ms = int(cfg_get(config, "audio.chunk_ms", 50))
@@ -184,7 +186,7 @@ def record_utterance(
     started_at = time.monotonic()
     last_data = started_at
     buffer = b""
-    buffer_ok = True
+    ready_notified = False
 
     print("Listening...", file=sys.stderr, flush=True)
     try:
@@ -226,6 +228,9 @@ def record_utterance(
                         noise = ordered[max(0, int(len(ordered) * 0.2) - 1)] if ordered else 0.0
                         threshold = max(min_rms, min(noise * noise_multiplier, 3200.0))
                         calibrated = True
+                        if capture_ready and not ready_notified:
+                            capture_ready()
+                            ready_notified = True
                     continue
 
                 if not in_speech:
@@ -237,6 +242,8 @@ def record_utterance(
                     if speech_run >= speech_chunks_needed:
                         in_speech = True
                         speech_started_at = elapsed
+                        if speech_started:
+                            speech_started()
                         chunks.extend(pre_roll)
                         pre_roll.clear()
                     elif elapsed > start_timeout:
@@ -256,6 +263,9 @@ def record_utterance(
             if not calibrated and time.monotonic() - started_at > (calibration_ms / 1000 + 1.0):
                 calibrated = True
                 threshold = max(min_rms, 250.0)
+                if capture_ready and not ready_notified:
+                    capture_ready()
+                    ready_notified = True
             if time.monotonic() - started_at > start_timeout + max_seconds + 3:
                 break
     finally:

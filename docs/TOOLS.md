@@ -45,6 +45,10 @@ Only the spoken names in `agent.apps` are accepted. Each entry is an argv array,
 
 The `stop` command also asks Ollama to unload the configured model with `keep_alive: 0`; this is best-effort if Ollama is unavailable.
 
+Wake sessions record local phase timings for capture, transcription, agent/tool processing, and speech in the audit log. These timings contain no transcript content and help identify latency bottlenecks.
+
+Starting `wake` also performs a one-token Ollama warm-up with the configured model. This loads the model before the first user request without sending user content.
+
 ### `volume` and `media`
 
 Volume uses `wpctl` (PipeWire/WirePlumber). Media uses `playerctl` when available and falls back to MPRIS over D-Bus. Media control is limited to play, pause, next, previous, stop, and status.

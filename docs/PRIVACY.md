@@ -46,6 +46,8 @@ The audit log can include:
 - Confirmation requests and decisions
 - Timing and token counts
 
+Wake phase timings are also recorded for capture, transcription, agent/tool processing, and speech. They do not contain audio or transcript text by themselves.
+
 Strings are passed through a best-effort redactor, but the log is not encrypted. Treat it as sensitive.
 
 ## Spoken and displayed output

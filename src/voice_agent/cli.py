@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import shutil
 import sys
+import threading
+import time
 from pathlib import Path
 
 from . import llm, stt, tts
@@ -116,8 +119,8 @@ def _install_desktop(args) -> int:
     path = directory / "voice-agent.desktop"
     content = f"""[Desktop Entry]
 Type=Application
-Name=Voice Agent
-Comment=Continuous local voice assistant
+Name=Jarvis
+Comment=Continuous local Jarvis voice assistant
 Exec="{executable}" wake
 Icon=audio-input-microphone
 Terminal=false
@@ -138,16 +141,33 @@ WAKE_STOP_PATH = STATE_DIR / "wake.stop"
 WAKE_LOCK_PATH = STATE_DIR / "wake.lock"
 
 
+def _wake_process(pid: int) -> bool:
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").replace("\x00", " ")
+    except (OSError, UnicodeError):
+        return False
+    return "voice_agent" in command and " wake" in f" {command}"
+
+
 def _stop(args) -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     atomic_write(WAKE_STOP_PATH, "stop\n", mode=0o600)
+    try:
+        pid = int(WAKE_LOCK_PATH.read_text(encoding="ascii").strip())
+    except (FileNotFoundError, OSError, ValueError):
+        pid = 0
+    if pid and pid != os.getpid() and _wake_process(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
     config = load_config()
     try:
         llm.unload(config)
         model_status = " Ollama model unloaded."
     except Exception:
         model_status = " Ollama was not reachable; wake shutdown was still requested."
-    notify("Voice Agent", "Going to sleep.")
+    notify("Jarvis", "Going to sleep.")
     print(f"Wake session stop requested.{model_status}")
     return 0
 
@@ -163,6 +183,7 @@ def _wake(args) -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(WAKE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(fd, str(os.getpid()).encode("ascii"))
         os.close(fd)
     except FileExistsError:
         print("A wake session is already running.", file=sys.stderr)
@@ -170,17 +191,33 @@ def _wake(args) -> int:
     WAKE_STOP_PATH.unlink(missing_ok=True)
     stop_requested = WAKE_STOP_PATH.exists
     stop_phrases = {"stop", "goodbye", "exit", "quit", "go to sleep", "thats all", "that's all"}
+    barge_in = bool(cfg_get(config, "audio.barge_in", False))
     session_stopped = False
+    warmup_error: list[Exception] = []
+
+    def warm_model() -> None:
+        try:
+            llm.warmup(config, model=agent.model)
+        except Exception as exc:
+            warmup_error.append(exc)
+
+    warmup_thread = threading.Thread(target=warm_model, name="jarvis-ollama-warmup", daemon=True)
+    warmup_thread.start()
     try:
-        greeting = "I am awake. What would you like me to do?"
-        notify("Voice Agent", greeting)
+        greeting = "Jarvis is awake. What would you like me to do?"
+        notify("Jarvis", greeting)
         if not tts.speak(greeting, config, force=True, stop_requested=stop_requested):
             if not stop_requested():
                 print(f"Assistant: {greeting}")
+        warmup_thread.join()
+        if warmup_error:
+            agent.audit.write("llm_warmup_error", error=repr(warmup_error[0]))
+            notify("Jarvis", "Ollama is not ready; the first request may take longer.")
         while True:
             if stop_requested():
                 session_stopped = True
                 break
+            capture_started = time.monotonic()
             wav = record_utterance(
                 config,
                 silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
@@ -192,10 +229,13 @@ def _wake(args) -> int:
                 break
             if wav is None:
                 continue
+            agent.audit.write("timing", phase="capture", seconds=round(time.monotonic() - capture_started, 3))
+            transcription_started = time.monotonic()
             try:
                 transcript = stt.transcribe(wav, config).strip()
             finally:
                 wav.unlink(missing_ok=True)
+            agent.audit.write("timing", phase="transcription", seconds=round(time.monotonic() - transcription_started, 3))
             if not transcript:
                 print("No transcript.", file=sys.stderr)
                 continue
@@ -203,15 +243,65 @@ def _wake(args) -> int:
             if transcript.casefold().strip().rstrip(".!?") in stop_phrases:
                 session_stopped = True
                 break
+            reasoning_started = time.monotonic()
             response = agent.run(transcript)
-            notify("Voice Agent", response[:400])
-            if not tts.speak(response, config, stop_requested=stop_requested) and not stop_requested():
+            agent.audit.write("timing", phase="agent", seconds=round(time.monotonic() - reasoning_started, 3))
+            notify("Jarvis", response[:400])
+            speech_started = time.monotonic()
+            if barge_in:
+                interrupted_wav: list[Path | None] = []
+                speech_detected = threading.Event()
+                capture_stop = threading.Event()
+                capture_ready = threading.Event()
+
+                def capture_interruption() -> None:
+                    interrupted_wav.append(
+                        record_utterance(
+                            config,
+                            silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
+                            beeps=False,
+                            stop_requested=lambda: stop_requested() or capture_stop.is_set(),
+                            speech_started=speech_detected.set,
+                            capture_ready=capture_ready.set,
+                        )
+                    )
+
+                capture_thread = threading.Thread(target=capture_interruption, name="jarvis-barge-in", daemon=True)
+                capture_thread.start()
+                capture_ready.wait(timeout=2)
+                spoke = tts.speak(
+                    response,
+                    config,
+                    stop_requested=lambda: stop_requested() or speech_detected.is_set(),
+                )
+                if not speech_detected.is_set():
+                    capture_stop.set()
+                capture_thread.join()
+                interrupted = interrupted_wav[0] if interrupted_wav else None
+                if speech_detected.is_set() and interrupted:
+                    try:
+                        correction = stt.transcribe(interrupted, config).strip()
+                    finally:
+                        interrupted.unlink(missing_ok=True)
+                    if correction:
+                        transcript = correction
+                        print(f"You: {transcript}")
+                        response = agent.run(transcript)
+                        notify("Jarvis", response[:400])
+                        if not tts.speak(response, config, stop_requested=stop_requested):
+                            print(f"Assistant: {response}")
+                elif interrupted:
+                    interrupted.unlink(missing_ok=True)
+                if not spoke and not stop_requested() and not speech_detected.is_set():
+                    print(f"Assistant: {response}")
+            elif not tts.speak(response, config, stop_requested=stop_requested) and not stop_requested():
                 print(f"Assistant: {response}")
+            agent.audit.write("timing", phase="speech", seconds=round(time.monotonic() - speech_started, 3))
     finally:
         WAKE_LOCK_PATH.unlink(missing_ok=True)
         WAKE_STOP_PATH.unlink(missing_ok=True)
     if not session_stopped:
-        goodbye = "Okay, I am going to sleep."
+        goodbye = "Jarvis is going to sleep."
         if not tts.speak(goodbye, config, force=True):
             print(f"Assistant: {goodbye}")
     return 0
@@ -222,7 +312,7 @@ def _ask(args) -> int:
     agent = Agent(config, cwd=Path(args.cwd) if args.cwd else None, model=args.model, notifier=notify)
     response = agent.run(args.text)
     if args.speak:
-        notify("Voice Agent", response[:400])
+        notify("Jarvis", response[:400])
         if not tts.speak(response, config):
             print(f"Assistant: {response}")
     else:

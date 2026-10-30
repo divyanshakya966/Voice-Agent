@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Aegis. This project is a local-first voice assistant with a deliberately small attack surface. Changes that broaden filesystem, command, or network access need extra review.
+Thanks for helping improve Jarvis. This project is a local-first voice assistant with a deliberately small attack surface. Changes that broaden filesystem, command, or network access need extra review.
 
 ## Development setup
 

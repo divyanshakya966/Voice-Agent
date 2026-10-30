@@ -17,7 +17,7 @@ from .stt import STTError, transcribe
 from .tools import ToolError, build_registry
 from .util import notify, redact, run, trim, which
 
-SYSTEM_PROMPT = """You are Aegis, a private local voice assistant on a Linux KDE desktop.
+SYSTEM_PROMPT = """You are Jarvis, a private local voice assistant on a Linux KDE desktop.
 
 Use only the provided tools. Never invent tools or arguments, never claim success before a tool returns success, and never output shell commands for the user to run. Use the minimum tools needed. After a tool result, answer the user directly; never repeat the same tool call with the same arguments.
 
@@ -91,6 +91,7 @@ class Agent:
         )
         self.confirmation = str(cfg_get(config, "agent.confirmation", "gui")).lower()
         self.max_steps = int(cfg_get(config, "llm.max_steps", 6))
+        self.history: list[dict] = []
 
     def _system_prompt(self) -> str:
         return SYSTEM_PROMPT.format(
@@ -127,7 +128,7 @@ class Agent:
                     [
                         "kdialog",
                         "--title",
-                        "Voice Agent Confirmation",
+                        "Jarvis Confirmation",
                         "--yes-label",
                         "Allow",
                         "--no-label",
@@ -143,7 +144,7 @@ class Agent:
         if which("zenity"):
             try:
                 result = run(
-                    ["zenity", "--question", "--title", "Voice Agent Confirmation", "--width=560", "--text", text],
+                    ["zenity", "--question", "--title", "Jarvis Confirmation", "--width=560", "--text", text],
                     timeout=180,
                 )
                 return result.returncode == 0
@@ -342,6 +343,7 @@ class Agent:
         self.audit.write("user", text=text)
         messages = [
             {"role": "system", "content": self._system_prompt()},
+            *self.history,
             {"role": "user", "content": text},
         ]
         final = ""
@@ -395,5 +397,7 @@ class Agent:
                 break
         else:
             final = self._answer_from_tools(messages, last_result)
+        history_limit = max(4, int(cfg_get(self.config, "agent.session_history_messages", 24)))
+        self.history = messages[1:][-history_limit:]
         self.audit.write("assistant", text=final)
         return final

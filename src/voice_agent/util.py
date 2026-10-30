@@ -63,7 +63,7 @@ def notify(title: str, body: str = "", urgency: str = "normal") -> None:
     if not which("notify-send"):
         return
     try:
-        run(["notify-send", "--app-name=Voice Agent", f"--urgency={urgency}", title, body], timeout=5)
+        run(["notify-send", "--app-name=Jarvis", f"--urgency={urgency}", title, body], timeout=5)
     except (OSError, subprocess.SubprocessError):
         pass
 

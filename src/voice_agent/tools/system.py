@@ -63,7 +63,7 @@ def _web_search(args: dict, ctx: ToolContext) -> str:
     endpoint = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
     request = urllib.request.Request(
         endpoint,
-        headers={"Accept": "text/html", "User-Agent": "Aegis Voice Agent/1.0"},
+        headers={"Accept": "text/html", "User-Agent": "Jarvis Voice Agent/1.0"},
     )
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
@@ -246,9 +246,9 @@ def _notify(args: dict, ctx: ToolContext) -> str:
     if not message:
         raise ToolError("Notification message is empty.")
     if ctx.notifier:
-        ctx.notifier("Voice Agent", message[:500])
+        ctx.notifier("Jarvis", message[:500])
     elif which("notify-send"):
-        run(["notify-send", "--app-name=Voice Agent", "Voice Agent", message[:500]], timeout=5)
+        run(["notify-send", "--app-name=Jarvis", "Jarvis", message[:500]], timeout=5)
     else:
         raise ToolError("notify-send is missing.")
     return "Notification sent."

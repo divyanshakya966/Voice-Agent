@@ -36,7 +36,8 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
     "wake_silence_ms": 1200,
     "max_seconds": 20,
     "start_timeout": 6,
-    "beeps": false
+    "beeps": false,
+    "barge_in": false
   },
   "stt": {
     "language": "en",
@@ -63,6 +64,7 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
   },
   "agent": {
     "confirmation": "gui",
+    "session_history_messages": 24,
     "allowed_read_roots": [
       "~/GitHub",
       "~/Projects",
@@ -115,6 +117,7 @@ If a configured executable is missing, the code can fall back to a binary on `PA
 | `max_seconds` | `20` | Maximum speech duration after detection |
 | `start_timeout` | `6` | Maximum wait for speech to begin |
 | `beeps` | `false` | Play short capture endpoint beeps when explicitly enabled |
+| `barge_in` | `false` | Listen for speech during Jarvis playback and interrupt it; requires careful echo/noise tuning |
 
 List sources with `pactl list short sources` and set `audio.source` when the default microphone is wrong. If the agent cuts off too early, raise `silence_ms`. If background noise triggers it, raise `noise_multiplier` or `min_rms`.
 
@@ -137,6 +140,8 @@ List sources with `pactl list short sources` and set `audio.source` when the def
 | `timeout` | `60` | TTS subprocess timeout |
 
 Spoken text removes Markdown, code fences, URLs, and some formatting. Long responses are truncated at a sentence boundary when possible.
+
+Jarvis uses the locally configured Piper voice. To use another legally obtained Piper voice, set `PIPER_VOICE` during setup or point `paths.piper_voice` to its local model file.
 
 ## `llm`
 
@@ -161,6 +166,7 @@ Changing `llm.url` to a non-local address sends transcripts and tool results to 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `confirmation` | `gui` | Confirmation channel: `gui`, `voice`, `terminal`, or `auto` |
+| `session_history_messages` | `24` | Maximum prior conversation messages retained during one wake session |
 | `allowed_read_roots` | See example | Filesystem roots available to read tools |
 | `write_roots` | See example | Filesystem roots available to write tools |
 | `sandbox_network` | `false` | Allow network access in `run_check` |

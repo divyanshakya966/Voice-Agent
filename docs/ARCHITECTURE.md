@@ -19,7 +19,7 @@
                                        └──────────────────────────┘
 ```
 
-A wake session remains active until the user invokes `voice-agent stop` or speaks an exit phrase:
+A wake session preloads the configured Ollama model while Jarvis speaks its greeting, then remains active until the user invokes `voice-agent stop` or speaks an exit phrase:
 
 1. Start `parec`.
 2. Measure a short ambient calibration window.
@@ -30,9 +30,11 @@ A wake session remains active until the user invokes `voice-agent stop` or speak
 7. Validate and execute any requested tool calls.
 8. Return tool results to the model for a short spoken answer.
 9. Speak the answer with Piper, falling back to `espeak-ng`.
-10. Let Ollama unload the model after `llm.keep_alive` (default `10s`).
+10. Keep Ollama warm for `llm.keep_alive` (default `30m`) and unload it when stopped.
 
-The microphone is inactive before `wake` starts. The session has no persistent conversation context between turns, and the stop command can interrupt capture and speech playback.
+The microphone is inactive before `wake` starts. A wake session retains a bounded conversation history between turns; history is in memory only and is discarded when the process exits. The stop command can interrupt capture and speech playback.
+
+Optional `audio.barge_in` starts a second capture path during speech playback. It is disabled by default because this implementation has no acoustic echo cancellation; enable it only when the microphone does not hear the speakers strongly.
 
 ## Components
 
@@ -112,4 +114,4 @@ Configuration is merged over defaults and stored as JSON with mode `0600`. Runti
 - No telemetry or cloud dependencies
 - Fixed tools instead of shell access
 - Conservative defaults, with explicit opt-in for broader access
-- Low idle cost: no process remains after a command, and the model unloads quickly
+- Low idle cost: no process remains after `stop`, and the model unloads explicitly

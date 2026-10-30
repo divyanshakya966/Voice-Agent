@@ -88,7 +88,7 @@ The setup script does not pull Ollama models.
 
 ## First response is slow
 
-The first request after the model has been unloaded pays the model load cost. The default `llm.keep_alive` is `10s`, so a quiet period unloads it. Increase it if you prefer faster follow-ups:
+The first request after the model has been unloaded pays the model load cost. The default `llm.keep_alive` is `30m` during normal configuration, and an active `wake` session forces the same warm profile. Increase it only if you prefer faster follow-ups after very long idle periods:
 
 ```json
 {
