@@ -9,9 +9,9 @@ from pathlib import Path
 
 from . import llm, stt, tts
 from .agent import Agent
-from .audio import AudioError, beep, record_fixed, record_utterance
+from .audio import AudioError, record_fixed, record_utterance
 from .audit import AuditLog
-from .config import CONFIG_DIR, CONFIG_PATH, DATA_DIR, cfg_get, expand_path, load_config, save_config
+from .config import CONFIG_DIR, CONFIG_PATH, DATA_DIR, STATE_DIR, cfg_get, expand_path, load_config, save_config
 from .sandbox import available as bwrap_available
 from .sandbox import run_sandboxed
 from .tools import build_registry
@@ -117,8 +117,8 @@ def _install_desktop(args) -> int:
     content = f"""[Desktop Entry]
 Type=Application
 Name=Voice Agent
-Comment=Push-to-talk local voice assistant
-Exec="{executable}" listen --notify
+Comment=Continuous local voice assistant
+Exec="{executable}" wake
 Icon=audio-input-microphone
 Terminal=false
 NoDisplay=false
@@ -129,45 +129,91 @@ X-KDE-StartupNotify=false
     atomic_write(path, content, mode=0o644)
     print(f"Installed {path}")
     print("KDE shortcut: System Settings > Keyboard > Shortcuts > Custom Shortcuts")
-    print(f"  Command: {executable} listen --notify")
-    print("  Suggested key: Meta+Space")
+    print(f"  Wake command: {executable} wake")
+    print(f"  Stop command: {executable} stop")
     return 0
 
 
-def _listen(args) -> int:
+WAKE_STOP_PATH = STATE_DIR / "wake.stop"
+WAKE_LOCK_PATH = STATE_DIR / "wake.lock"
+
+
+def _stop(args) -> int:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_write(WAKE_STOP_PATH, "stop\n", mode=0o600)
     config = load_config()
-    agent = Agent(config, cwd=Path(args.cwd) if args.cwd else None, model=args.model, notifier=notify)
-    if args.notify:
-        notify("Voice Agent", "Listening...")
-    wav = record_utterance(
-        config,
-        start_timeout=args.start_timeout,
-        max_seconds=args.max_seconds,
-        silence_ms=args.silence_ms,
-    )
-    if wav is None:
-        beep("error")
-        if args.notify:
-            notify("Voice Agent", "No speech detected.")
-        return 2
     try:
-        transcript = stt.transcribe(wav, config)
+        llm.unload(config)
+        model_status = " Ollama model unloaded."
+    except Exception:
+        model_status = " Ollama was not reachable; wake shutdown was still requested."
+    notify("Voice Agent", "Going to sleep.")
+    print(f"Wake session stop requested.{model_status}")
+    return 0
+
+
+def _wake(args) -> int:
+    config = load_config()
+    config["llm"] = dict(config.get("llm", {}))
+    config["llm"]["keep_alive"] = "30m"
+    config["llm"]["num_predict"] = min(int(config["llm"].get("num_predict", 192)), 192)
+    config["tts"] = dict(config.get("tts", {}))
+    config["tts"]["max_chars"] = min(int(config["tts"].get("max_chars", 350)), 350)
+    agent = Agent(config, cwd=Path(args.cwd) if args.cwd else None, model=args.model, notifier=notify)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(WAKE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+    except FileExistsError:
+        print("A wake session is already running.", file=sys.stderr)
+        return 1
+    WAKE_STOP_PATH.unlink(missing_ok=True)
+    stop_requested = WAKE_STOP_PATH.exists
+    stop_phrases = {"stop", "goodbye", "exit", "quit", "go to sleep", "thats all", "that's all"}
+    session_stopped = False
+    try:
+        greeting = "I am awake. What would you like me to do?"
+        notify("Voice Agent", greeting)
+        if not tts.speak(greeting, config, force=True, stop_requested=stop_requested):
+            if not stop_requested():
+                print(f"Assistant: {greeting}")
+        while True:
+            if stop_requested():
+                session_stopped = True
+                break
+            wav = record_utterance(
+                config,
+                silence_ms=int(cfg_get(config, "audio.wake_silence_ms", 1200)),
+                beeps=False,
+                stop_requested=stop_requested,
+            )
+            if stop_requested():
+                session_stopped = True
+                break
+            if wav is None:
+                continue
+            try:
+                transcript = stt.transcribe(wav, config).strip()
+            finally:
+                wav.unlink(missing_ok=True)
+            if not transcript:
+                print("No transcript.", file=sys.stderr)
+                continue
+            print(f"You: {transcript}")
+            if transcript.casefold().strip().rstrip(".!?") in stop_phrases:
+                session_stopped = True
+                break
+            response = agent.run(transcript)
+            notify("Voice Agent", response[:400])
+            if not tts.speak(response, config, stop_requested=stop_requested) and not stop_requested():
+                print(f"Assistant: {response}")
     finally:
-        wav.unlink(missing_ok=True)
-    if not transcript:
-        beep("error")
-        print("No transcript.", file=sys.stderr)
-        if args.notify:
-            notify("Voice Agent", "I could not transcribe that.")
-        return 2
-    print(f"You: {transcript}")
-    response = agent.run(transcript)
-    if args.no_tts:
-        print(f"Assistant: {response}")
-    elif not tts.speak(response, config):
-        print(f"Assistant: {response}")
-    if args.notify:
-        notify("Voice Agent", response[:400])
+        WAKE_LOCK_PATH.unlink(missing_ok=True)
+        WAKE_STOP_PATH.unlink(missing_ok=True)
+    if not session_stopped:
+        goodbye = "Okay, I am going to sleep."
+        if not tts.speak(goodbye, config, force=True):
+            print(f"Assistant: {goodbye}")
     return 0
 
 
@@ -176,6 +222,7 @@ def _ask(args) -> int:
     agent = Agent(config, cwd=Path(args.cwd) if args.cwd else None, model=args.model, notifier=notify)
     response = agent.run(args.text)
     if args.speak:
+        notify("Voice Agent", response[:400])
         if not tts.speak(response, config):
             print(f"Assistant: {response}")
     else:
@@ -246,15 +293,13 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="Create the user config and data directories.")
     init.set_defaults(func=_init)
 
-    listen = sub.add_parser("listen", help="Record one spoken command, run it, and speak the answer.")
-    listen.add_argument("--cwd", help="Workspace directory for file and code tools.")
-    listen.add_argument("--model", help="Override the Ollama model.")
-    listen.add_argument("--notify", action="store_true", help="Use desktop notifications (for KDE shortcuts).")
-    listen.add_argument("--no-tts", action="store_true", help="Print the answer without speaking.")
-    listen.add_argument("--start-timeout", type=float)
-    listen.add_argument("--max-seconds", type=float)
-    listen.add_argument("--silence-ms", type=int)
-    listen.set_defaults(func=_listen)
+    wake = sub.add_parser("wake", help="Start a continuous voice session until stopped.")
+    wake.add_argument("--cwd", help="Workspace directory for file and code tools.")
+    wake.add_argument("--model", help="Override the Ollama model.")
+    wake.set_defaults(func=_wake)
+
+    stop = sub.add_parser("stop", help="Stop the active continuous wake session.")
+    stop.set_defaults(func=_stop)
 
     ask = sub.add_parser("ask", help="Send text to the agent without using the microphone.")
     ask.add_argument("text")
@@ -301,6 +346,4 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except Exception as exc:
         print(f"voice-agent: {type(exc).__name__}: {exc}", file=sys.stderr)
-        if getattr(args, "notify", False):
-            notify("Voice Agent error", str(exc)[:400], urgency="critical")
         return 1

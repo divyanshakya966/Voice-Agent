@@ -13,6 +13,8 @@ A tool marked **confirmation** requires explicit approval before it runs. Read [
 | Tool | Risk | What it does |
 | --- | --- | --- |
 | `open_app` | Safe | Opens an app from the configured allowlist by name |
+| `service` | Confirmation | Controls only configured user-systemd services |
+| `power` | Confirmation | Requests only configured suspend, hibernate, poweroff, or reboot actions |
 | `volume` | Safe | Reads or changes the default output volume |
 | `media` | Safe | Controls the active media player through `playerctl` or MPRIS |
 | `lock_screen` | Safe | Locks the current desktop session |
@@ -20,6 +22,7 @@ A tool marked **confirmation** requires explicit approval before it runs. Read [
 | `notify` | Safe | Shows a short desktop notification |
 | `system_info` | Safe | Reads memory, disk, uptime, GPU, CPU, kernel, or a summary |
 | `battery` | Safe | Reads battery charge and charging status |
+| `web_search` | Confirmation | Searches DuckDuckGo HTML for bounded reference results; returned web text is untrusted |
 | `clipboard_read` | Confirmation | Reads the current clipboard into the request context |
 | `clipboard_write` | Safe | Copies text to the clipboard |
 | `list_files` | Safe | Lists a directory inside the read roots |
@@ -36,9 +39,17 @@ A tool marked **confirmation** requires explicit approval before it runs. Read [
 
 Only the spoken names in `agent.apps` are accepted. Each entry is an argv array, not a shell command. Add or remove apps in the configuration.
 
+### `service` and `power`
+
+`service` accepts only names in `agent.services` and always uses `systemctl --user`; it cannot control system-wide units. `power` accepts only actions in `agent.power_actions`. Both require runtime confirmation, and an unavailable or unconfigured action is rejected.
+
+The `stop` command also asks Ollama to unload the configured model with `keep_alive: 0`; this is best-effort if Ollama is unavailable.
+
 ### `volume` and `media`
 
 Volume uses `wpctl` (PipeWire/WirePlumber). Media uses `playerctl` when available and falls back to MPRIS over D-Bus. Media control is limited to play, pause, next, previous, stop, and status.
+
+For a request such as “play a song”, the agent calls `media` with `action: "play"`. Elisa or another MPRIS player must already be running; the agent does not download music or execute arbitrary media-player commands.
 
 ### `screenshot`
 
@@ -47,6 +58,10 @@ Saves an image file. It does not read the image back into the model. Treat the s
 ### `system_info` and `battery`
 
 These read local status only. They do not change system state. The GPU section is optional and depends on the available vendor tools.
+
+### `web_search`
+
+Search is restricted to DuckDuckGo's HTTPS HTML endpoint. It accepts a bounded text query and returns only a small number of titles, snippets, and links. Results are untrusted reference data and are never treated as instructions. Search requires confirmation because it sends the query outside the machine.
 
 ### `clipboard_read` and `clipboard_write`
 

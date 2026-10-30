@@ -11,6 +11,7 @@ import time
 import wave
 from collections import deque
 from pathlib import Path
+from typing import Callable
 
 from .config import CACHE_DIR, cfg_get
 from .util import which
@@ -64,7 +65,11 @@ def _beep_path(name: str, frequency: float) -> Path:
     return path
 
 
-def play_file(path: str | Path, timeout: float = 30) -> bool:
+def play_file(
+    path: str | Path,
+    timeout: float = 30,
+    stop_requested: Callable[[], bool] | None = None,
+) -> bool:
     players = [
         ("paplay", ["paplay"]),
         ("pw-play", ["pw-play"]),
@@ -73,17 +78,29 @@ def play_file(path: str | Path, timeout: float = 30) -> bool:
     for name, argv in players:
         if not which(name):
             continue
+        process: subprocess.Popen | None = None
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [*argv, str(path)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout,
-                check=False,
             )
-            if result.returncode == 0:
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if stop_requested and stop_requested():
+                    process.terminate()
+                    process.wait(timeout=2)
+                    return False
+                if time.monotonic() >= deadline:
+                    process.kill()
+                    process.wait(timeout=2)
+                    break
+                time.sleep(0.05)
+            if process.returncode == 0:
                 return True
         except (OSError, subprocess.SubprocessError):
+            if process and process.poll() is None:
+                process.kill()
             continue
     return False
 
@@ -126,6 +143,7 @@ def record_utterance(
     silence_ms: int | None = None,
     calibration_ms: int | None = None,
     beeps: bool | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> Path | None:
     rate = int(cfg_get(config, "audio.rate", 16000))
     chunk_ms = int(cfg_get(config, "audio.chunk_ms", 50))
@@ -134,10 +152,10 @@ def record_utterance(
     min_rms = float(cfg_get(config, "audio.min_rms", 180))
     noise_multiplier = float(cfg_get(config, "audio.noise_multiplier", 2.8))
     speech_chunks_needed = int(cfg_get(config, "audio.speech_chunks", 3))
-    silence_ms = int(silence_ms if silence_ms is not None else cfg_get(config, "audio.silence_ms", 900))
+    silence_ms = int(silence_ms if silence_ms is not None else cfg_get(config, "audio.silence_ms", 5000))
     max_seconds = float(max_seconds if max_seconds is not None else cfg_get(config, "audio.max_seconds", 20))
     start_timeout = float(start_timeout if start_timeout is not None else cfg_get(config, "audio.start_timeout", 6))
-    beeps = bool(beeps if beeps is not None else cfg_get(config, "audio.beeps", True))
+    beeps = bool(beeps if beeps is not None else cfg_get(config, "audio.beeps", False))
     source = str(cfg_get(config, "audio.source", "") or "")
 
     argv = _capture_command(rate, source)
@@ -171,6 +189,8 @@ def record_utterance(
     print("Listening...", file=sys.stderr, flush=True)
     try:
         while True:
+            if stop_requested and stop_requested():
+                break
             now = time.monotonic()
             timeout = 0.25
             try:
@@ -252,6 +272,8 @@ def record_utterance(
         except OSError:
             pass
 
+    if stop_requested and stop_requested():
+        return None
     if not in_speech or not chunks:
         print("No speech detected.", file=sys.stderr, flush=True)
         return None

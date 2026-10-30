@@ -36,7 +36,7 @@ Do not include real secrets, private keys, or personal data in a report. Use red
 
 1. **Microphone to transcript**: audio is captured locally by `parec` and transcribed locally by `whisper-cli`.
 2. **Transcript to model**: the transcript is sent to the configured Ollama endpoint. The default is `http://127.0.0.1:11434`; changing `llm.url` can send prompts to another host.
-3. **Model to tools**: the model may request a tool call, but only names in the local registry are accepted.
+3. **Model to tools**: the model may request a tool call, but only names in the local registry are accepted. Web search requires confirmation and returns untrusted data that must not be followed as instructions.
 4. **Tool to host**: each tool applies its own validation. Development checks are additionally confined by bubblewrap.
 5. **User approval**: writes, patches, development checks, and clipboard reads require confirmation.
 
@@ -112,10 +112,16 @@ Events are appended as JSON Lines to the local state directory with mode `0600`.
 ## Recommendations
 
 - Keep Ollama bound to localhost unless you intentionally expose it with authentication and transport security.
+- Review web-search confirmation because the query is sent to DuckDuckGo and returned text may contain prompt-injection attempts.
 - Keep `agent.sandbox_network` disabled unless a check genuinely needs the network.
 - Keep write roots narrow.
+- Keep `agent.services` empty unless a specific user service is needed; never add sensitive system units or broad service aliases.
 - Review the confirmation preview before approving a write or command.
 - Use the smallest model that works for the task; tool-call quality varies by model.
 - Do not run the agent as root.
 - Back up work before approving patches or test commands in an important repository.
 - Treat model output as untrusted text, even when it is spoken aloud.
+
+## Repository hygiene
+
+Do not commit `~/.config/voice-agent/config.json`, audit logs, recordings, screenshots, downloaded models, credentials, private keys, or real transcripts. Use placeholders in documentation and inspect `git diff --cached` before publishing. The repository's ignore rules cover the normal runtime and model artifacts, but ignore rules are not a security boundary.

@@ -26,7 +26,7 @@ If you change audio, STT, TTS, or the model loop, test with a short spoken comma
 
 ```bash
 ./bin/voice-agent ask "What is the current volume?"
-./bin/voice-agent listen --no-tts
+./bin/voice-agent wake
 ```
 
 If you change the sandbox or file tools, add a focused test or document a reproducible manual check. Do not test with real secrets or private data.

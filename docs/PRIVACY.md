@@ -34,7 +34,7 @@ With XDG defaults:
 | Binaries and models | `~/.local/share/voice-agent/` | Downloaded or built locally |
 | Audit log | `~/.local/state/voice-agent/audit.jsonl` | Mode `0600`, JSON Lines |
 | File backups | `~/.local/state/voice-agent/backups/` | Created before writes and patches |
-| Temporary audio | `~/.cache/voice-agent/` and the system temp directory | Deleted after transcription in the normal listen flow |
+| Temporary audio | `~/.cache/voice-agent/` and the system temp directory | Deleted after transcription in the wake session |
 | Screenshots | `~/Pictures/Screenshots/` | Created by the `screenshot` tool |
 | Clipboard | Desktop clipboard | Changed by `clipboard_write` |
 
@@ -50,8 +50,7 @@ Strings are passed through a best-effort redactor, but the log is not encrypted.
 
 ## Spoken and displayed output
 
-- `voice-agent say` and `listen` play audio through the configured audio output.
-- `--notify` sends the response to the desktop notification service. Notification history may persist in your desktop environment.
+- `voice-agent say` and `wake` play audio through the configured audio output.
 - Terminal output may remain in shell history or terminal scrollback.
 - Speech output can be audible to people nearby.
 

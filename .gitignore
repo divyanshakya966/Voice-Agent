@@ -10,6 +10,8 @@ secrets.json
 *.key
 *.p12
 *.pfx
+*.crt
+*.csr
 secrets/
 secret/
 
@@ -44,6 +46,7 @@ models/
 *.safetensors
 *.sqlite
 *.sqlite3
+*.db
 
 # Generated desktop entry
 voice-agent.desktop
@@ -63,6 +66,7 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 .tox/
 .nox/
 .coverage
@@ -99,6 +103,7 @@ desktop.ini
 .direnv/
 .envrc
 .tool-versions
+.python-version
 
 # Temporary files
 *.tmp

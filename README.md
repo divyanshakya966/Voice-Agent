@@ -43,7 +43,7 @@ ollama pull qwen3:1.7b
 
 ./bin/voice-agent doctor
 ./bin/voice-agent ask "What is the current volume?"
-./bin/voice-agent listen --notify
+./bin/voice-agent wake
 ```
 
 If `~/.local/bin` is not on your `PATH`, use `./bin/voice-agent` or the absolute path printed by the installer.
@@ -59,10 +59,10 @@ Install the desktop entry and bind a shortcut:
 Then open **System Settings → Keyboard → Shortcuts → Custom Shortcuts**, create a command shortcut, and use the command printed by the installer:
 
 ```bash
-/path/to/voice-agent/bin/voice-agent listen --notify
+/path/to/voice-agent/bin/voice-agent wake
 ```
 
-`Meta+Space` is a suggested binding. The desktop entry itself does not force a global shortcut.
+Bind `wake` to Meta+Alt and `stop` to Meta+Space. The desktop entry itself does not force a global shortcut.
 
 ## Models
 
@@ -85,7 +85,8 @@ Model licenses and behavior are controlled by their upstream projects. Some Qwen
 | --- | --- |
 | `voice-agent doctor` | Check dependencies, models, audio, GPU, sandbox, and desktop tools |
 | `voice-agent init` | Create the user config and data directories |
-| `voice-agent listen` | Record one spoken command, run it, and speak the answer |
+| `voice-agent wake` | Start a continuous voice session until stopped |
+| `voice-agent stop` | Stop the active continuous voice session |
 | `voice-agent ask "..."` | Send text to the agent without using the microphone |
 | `voice-agent say "..."` | Test offline text-to-speech |
 | `voice-agent transcribe file.wav` | Transcribe an existing WAV file |
@@ -93,9 +94,9 @@ Model licenses and behavior are controlled by their upstream projects. Some Qwen
 | `voice-agent tools` | List the fixed tool registry |
 | `voice-agent audit -n 20` | Show recent local audit records |
 | `voice-agent config` | Print the effective configuration |
-| `voice-agent install-desktop` | Install a user desktop entry and print PTT setup steps |
+| `voice-agent install-desktop` | Install a user desktop entry and print wake/stop shortcut steps |
 
-Useful `listen` options include `--cwd`, `--model`, `--notify`, `--no-tts`, `--start-timeout`, `--max-seconds`, and `--silence-ms`.
+Use `wake --cwd` or `wake --model` to override the workspace or Ollama model for a continuous session.
 
 ## Security model
 
@@ -127,6 +128,10 @@ Default locations follow the XDG base directory specification:
 
 See [docs/PRIVACY.md](docs/PRIVACY.md) for details and deletion instructions.
 
+## Public repository hygiene
+
+This repository contains source code and documentation only. Local configuration, audit logs, backups, downloaded models, audio recordings, screenshots, credentials, and machine-specific environment files are excluded by `.gitignore`. Review `git status --ignored` before publishing changes, and never commit real transcripts, secrets, private keys, or personal paths.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
@@ -140,12 +145,12 @@ See [docs/PRIVACY.md](docs/PRIVACY.md) for details and deletion instructions.
 ## Known limitations
 
 - Primary support is Linux with KDE Plasma and PipeWire; other desktops may need configuration changes.
-- There is no wake word. Activation is push-to-talk or an explicit command.
-- One invocation handles one command. Follow-up context is not retained between invocations.
+- There is no hidden background daemon. The explicit `wake` command keeps the microphone active until `stop` is invoked.
+- Each voice turn is processed independently; follow-up turns remain available during the active wake session.
 - Small local models can make mistakes, ignore style instructions, or choose an unexpected tool. Confirmation and tool validation reduce the impact, but do not eliminate it.
 - The sandboxed checks still execute project code when you approve `pytest`, `npm test`, or similar commands. Treat any workspace you scan as potentially untrusted.
 - The audit log is not encrypted.
 
 ## License
 
-No license has been selected for this repository yet. Add a `LICENSE` file before publishing or distributing it.
+This project is available under the [MIT License](LICENSE).

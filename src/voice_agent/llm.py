@@ -82,6 +82,21 @@ def chat(config: dict, messages: list[dict], tools: list[dict] | None = None, mo
     return message
 
 
+def unload(config: dict, model: str | None = None) -> None:
+    model = model or str(cfg_get(config, "llm.model", "qwen3:1.7b"))
+    _request(
+        config,
+        "/api/generate",
+        {
+            "model": model,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": 0,
+        },
+        timeout=10,
+    )
+
+
 def tags(config: dict) -> list[dict]:
     parsed = _request(config, "/api/tags", timeout=10)
     return list(parsed.get("models", []))

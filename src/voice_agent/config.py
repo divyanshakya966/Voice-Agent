@@ -24,6 +24,7 @@ DEFAULT_APPS = {
     "systemsettings": ["systemsettings"],
     "image viewer": ["gwenview"],
     "gwenview": ["gwenview"],
+    "elisa": ["elisa"],
     "screenshot tool": ["spectacle"],
     "spectacle": ["spectacle"],
 }
@@ -43,10 +44,11 @@ DEFAULT_CONFIG = {
         "min_rms": 180,
         "noise_multiplier": 2.8,
         "speech_chunks": 3,
-        "silence_ms": 900,
+        "silence_ms": 5000,
+        "wake_silence_ms": 1200,
         "max_seconds": 20,
         "start_timeout": 6,
-        "beeps": True,
+        "beeps": False,
     },
     "stt": {
         "language": "en",
@@ -57,14 +59,14 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "engine": "piper",
         "fallback": "espeak-ng",
-        "max_chars": 700,
+        "max_chars": 350,
         "timeout": 60,
     },
     "llm": {
         "model": "qwen3:1.7b",
-        "keep_alive": "10s",
+        "keep_alive": "30m",
         "num_ctx": 4096,
-        "num_predict": 320,
+        "num_predict": 192,
         "temperature": 0.2,
         "timeout": 180,
         "max_steps": 6,
@@ -85,6 +87,8 @@ DEFAULT_CONFIG = {
         "command_timeout": 90,
         "command_output_limit": 20000,
         "apps": DEFAULT_APPS,
+        "services": {},
+        "power_actions": ["suspend", "hibernate", "poweroff", "reboot"],
     },
 }
 

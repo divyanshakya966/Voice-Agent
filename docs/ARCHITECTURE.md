@@ -19,7 +19,7 @@
                                        └──────────────────────────┘
 ```
 
-A single invocation is intentionally short-lived:
+A wake session remains active until the user invokes `voice-agent stop` or speaks an exit phrase:
 
 1. Start `parec`.
 2. Measure a short ambient calibration window.
@@ -32,7 +32,7 @@ A single invocation is intentionally short-lived:
 9. Speak the answer with Piper, falling back to `espeak-ng`.
 10. Let Ollama unload the model after `llm.keep_alive` (default `10s`).
 
-There is no background daemon and no persistent conversation context between invocations.
+The microphone is inactive before `wake` starts. The session has no persistent conversation context between turns, and the stop command can interrupt capture and speech playback.
 
 ## Components
 
@@ -108,7 +108,7 @@ Configuration is merged over defaults and stored as JSON with mode `0600`. Runti
 ## Design constraints
 
 - Standard-library Python only; no runtime package installation
-- One-shot push-to-talk instead of an always-listening daemon
+- Explicitly started continuous session instead of an always-on background daemon
 - No telemetry or cloud dependencies
 - Fixed tools instead of shell access
 - Conservative defaults, with explicit opt-in for broader access

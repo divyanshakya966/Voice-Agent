@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from .audio import play_file
 from .config import CACHE_DIR, cfg_get, expand_path, find_executable
@@ -34,7 +35,7 @@ def _speakable(text: str, limit: int) -> str:
     return cleaned
 
 
-def _piper_speak(text: str, config: dict) -> bool:
+def _piper_speak(text: str, config: dict, stop_requested: Callable[[], bool] | None = None) -> bool:
     piper = find_executable(str(cfg_get(config, "paths.piper", "")), "piper")
     voice = expand_path(str(cfg_get(config, "paths.piper_voice", "")))
     if not piper or not voice.is_file():
@@ -48,14 +49,14 @@ def _piper_speak(text: str, config: dict) -> bool:
         result = run([piper, "-m", str(voice), "-f", str(path), "-q"], timeout=timeout, input_text=text)
         if result.returncode != 0 or not path.exists() or path.stat().st_size == 0:
             return False
-        return play_file(path, timeout=timeout)
+        return play_file(path, timeout=timeout, stop_requested=stop_requested)
     except (OSError, RuntimeError):
         return False
     finally:
         path.unlink(missing_ok=True)
 
 
-def _espeak_speak(text: str, config: dict) -> bool:
+def _espeak_speak(text: str, config: dict, stop_requested: Callable[[], bool] | None = None) -> bool:
     engine = str(cfg_get(config, "tts.fallback", "espeak-ng"))
     if not which(engine):
         return False
@@ -67,14 +68,20 @@ def _espeak_speak(text: str, config: dict) -> bool:
         result = run([engine, "-s", "172", "-w", str(path), text], timeout=60)
         if result.returncode != 0 or not path.exists():
             return False
-        return play_file(path, timeout=60)
+        return play_file(path, timeout=60, stop_requested=stop_requested)
     except (OSError, RuntimeError):
         return False
     finally:
         path.unlink(missing_ok=True)
 
 
-def speak(text: str, config: dict, *, force: bool = False) -> bool:
+def speak(
+    text: str,
+    config: dict,
+    *,
+    force: bool = False,
+    stop_requested: Callable[[], bool] | None = None,
+) -> bool:
     if not text.strip():
         return False
     if not force and not bool(cfg_get(config, "tts.enabled", True)):
@@ -84,9 +91,9 @@ def speak(text: str, config: dict, *, force: bool = False) -> bool:
     if not spoken:
         return False
     print(f"Assistant: {text}", flush=True)
-    if _piper_speak(spoken, config):
+    if _piper_speak(spoken, config, stop_requested):
         return True
-    if _espeak_speak(spoken, config):
+    if _espeak_speak(spoken, config, stop_requested):
         return True
     print("TTS unavailable; response was printed only.", file=sys.stderr, flush=True)
     return False
