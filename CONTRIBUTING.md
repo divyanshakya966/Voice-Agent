@@ -82,4 +82,4 @@ Keep pull requests focused. Include:
 
 ## Licensing
 
-No project license has been selected yet. Do not assume a license for contributions until the repository owner adds one. Discuss licensing before contributing substantial code.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text. By contributing, you agree that your contributions are provided under the same license.
