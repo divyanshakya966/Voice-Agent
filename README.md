@@ -1,8 +1,8 @@
 # Jarvis Voice Agent
 
-A private, local-first push-to-talk voice assistant for Linux desktops. Speech recognition, language inference, and text-to-speech run on your machine. The assistant can inspect system status, control a small set of desktop actions, read and search files, run allowlisted development checks in a sandbox, and perform read-only security scans through a fixed tool registry.
+A private, local-first user-level voice agent foundation for Linux desktops. Speech recognition, language inference, and text-to-speech run on your machine. Jarvis currently coordinates desktop actions, files, media, system status, user services, web research, and sandboxed development tasks through a capability-controlled tool registry.
 
-This is a working prototype, not a general-purpose autonomous agent. It has no always-on daemon, no cloud dependency, and no arbitrary shell tool.
+Jarvis is designed to grow into a general-purpose autonomous agent within the signed-in user's security boundary. Browser automation, productivity integrations, window management, richer media workflows, and additional user-level plugins are expansion targets, not all currently shipped features. It does not use root privileges, unrestricted shell execution, arbitrary system-service control, or silent approval of sensitive actions.
 
 ## Highlights
 
@@ -11,6 +11,8 @@ This is a working prototype, not a general-purpose autonomous agent. It has no a
 - Local language model through [Ollama](https://ollama.com)
 - Explicit wake/stop voice sessions with bounded in-memory conversation history
 - Fixed tool allowlist instead of open-ended shell access
+- Capability-based expansion path for browser, productivity, desktop, and user-service integrations
+- Optional systemd user-service deployment for restartable continuous sessions
 - GUI, voice, or terminal confirmation for writes, commands, and clipboard reads
 - Bubblewrap sandbox for development checks, network disabled by default
 - Audit log with best-effort secret redaction

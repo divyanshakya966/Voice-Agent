@@ -23,6 +23,21 @@ Do not include real secrets, private keys, or personal data in a report. Use red
 - Make dangerous operations explicit and auditable.
 - Reduce the impact of a confused or manipulated model.
 - Avoid collecting telemetry.
+- Support broad user-level autonomy without crossing into root or unrestricted command execution.
+
+## Full-service autonomy boundary
+
+The project is intended to become a full-service general-purpose agent inside the signed-in user's session. “General-purpose” means broad, composable user-level capabilities, not unrestricted authority. New integrations must be exposed as narrow tools with typed arguments, explicit capability scope, input validation, audit records, and confirmation for mutating, private, network, or irreversible actions.
+
+The agent must not gain root privileges, silently invoke `sudo`, execute arbitrary model-generated shell text, read blocked secret paths, or control system-wide services through a generic escape hatch. Explicit wake/stop remains the activation model; the microphone and agent loop are inactive before `wake`. The optional systemd unit adds defense-in-depth restrictions but is not a VM boundary and does not isolate the process from the signed-in user's desktop session.
+
+Configured plugin modules are trusted code and can access the same user account as Jarvis. They are an extensibility boundary, not a sandbox. Keep `agent.plugin_modules` empty unless each module has been reviewed and its dependencies are trusted.
+
+Browser automation is disabled by default. When enabled, it uses an isolated profile, accepts only HTTPS URLs on `agent.browser.allowed_domains`, returns bounded untrusted page text, and requires confirmation. It does not automate arbitrary clicks, form submissions, uploads, downloads, or the user's normal browser profile.
+
+Local email integration is draft-only: no SMTP, IMAP, OAuth, or provider credentials are read or stored. Reminder data remains local and does not run a background scheduler yet.
+
+Streaming audio remains local. The optional sounddevice backend passes microphone frames through WebRTC VAD; configure a PipeWire echo-cancel source in `audio.source` when speakers and microphone share a room. No audio is sent to a cloud service.
 
 ## Non-goals
 

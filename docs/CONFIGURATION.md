@@ -26,6 +26,7 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
   },
   "audio": {
     "source": "",
+    "backend": "parec",
     "rate": 16000,
     "chunk_ms": 50,
     "calibration_ms": 350,
@@ -85,7 +86,15 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
       "settings": ["systemsettings"]
     },
     "services": {},
-    "power_actions": ["suspend", "hibernate", "poweroff", "reboot"]
+    "power_actions": ["suspend", "hibernate", "poweroff", "reboot"],
+    "plugin_modules": [],
+    "browser": {
+      "enabled": false,
+      "engine": "chromium",
+      "headless": true,
+      "allowed_domains": [],
+      "profile_dir": "~/.local/share/voice-agent/browser-profile"
+    }
   }
 }
 ```
@@ -106,6 +115,7 @@ If a configured executable is missing, the code can fall back to a binary on `PA
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `source` | empty | PipeWire/PulseAudio source name. Empty uses the system default source |
+| `backend` | `parec` | Capture backend: `parec` or optional streaming `sounddevice` |
 | `rate` | `16000` | Capture sample rate in Hz |
 | `chunk_ms` | `50` | VAD chunk size in milliseconds |
 | `calibration_ms` | `350` | Ambient-noise calibration window |
@@ -120,6 +130,10 @@ If a configured executable is missing, the code can fall back to a binary on `PA
 | `barge_in` | `false` | Listen for speech during Jarvis playback and interrupt it; requires careful echo/noise tuning |
 
 List sources with `pactl list short sources` and set `audio.source` when the default microphone is wrong. If the agent cuts off too early, raise `silence_ms`. If background noise triggers it, raise `noise_multiplier` or `min_rms`.
+
+For optional streaming capture, install `requirements-streaming.txt`, install Fedora's `portaudio` system library, set `audio.backend` to `sounddevice`, and point `audio.source` at a PipeWire echo-cancel virtual source. This streams audio frames through WebRTC VAD before the existing local Whisper transcription step; it does not yet stream Whisper tokens.
+
+For browser automation, install `requirements-browser.txt` and download the selected Playwright engines with `.venv/bin/playwright install chromium firefox`. Browser automation remains disabled until `agent.browser.enabled` is set to `true` and at least one trusted HTTPS domain is added to `agent.browser.allowed_domains`.
 
 ## `stt`
 
@@ -175,6 +189,27 @@ Changing `llm.url` to a non-local address sends transcripts and tool results to 
 | `apps` | Built-in KDE defaults | Spoken app name to argv mapping |
 | `services` | `{}` | Spoken service name to a user-systemd unit; system services are never controlled |
 | `power_actions` | suspend, hibernate, poweroff, reboot | Explicitly permitted power actions; all require confirmation |
+| `plugin_modules` | `[]` | Explicit Python plugin modules trusted to expose `build_tools(context)` |
+| `browser` | disabled | Optional Playwright browser capability with HTTPS domain allowlisting |
+
+### Plugin modules
+
+Plugins are trusted user-level Python code, not a sandbox boundary. Add a module name to `agent.plugin_modules` only when its source and dependencies are trusted. A plugin must expose `build_tools(context)` and return `Tool` objects; every returned tool still passes through Jarvis's argument validation, confirmation, audit, and registry checks.
+
+Local personal tools currently provide reminders and email drafts only. Reminders use `~/.local/state/voice-agent/reminders.json` and notify during an active wake session; email drafts are saved as mode-`0600` `.eml` files and are never sent automatically. Provider sync is not enabled yet.
+
+### Optional supervised service
+
+The repository includes an opt-in user service at `systemd/voice-agent-wake.service`. Install it with:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/voice-agent-wake.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now voice-agent-wake.service
+```
+
+This starts continuous wake mode after login and restarts it after failures. The unit applies kernel, filesystem, privilege, and address-family restrictions while retaining the user-session access needed for audio, D-Bus, Ollama, and desktop tools. It is still a same-user process, not a VM or privilege boundary. Do not enable it if you want the microphone active only after the Meta+Alt shortcut; `systemctl --user disable --now voice-agent-wake.service` returns to explicit wake/stop control.
 
 ### Confirmation modes
 

@@ -6,7 +6,9 @@ from unittest.mock import patch
 from voice_agent import cli
 from voice_agent.agent import Agent
 from voice_agent.audit import AuditLog
+from voice_agent.tools import build_registry
 from voice_agent.tools.base import ToolContext
+from voice_agent.tools.browser import _allowed_url
 from voice_agent.tools.files import ToolError, _list_files, _validate_check
 from voice_agent.util import redact
 
@@ -60,6 +62,20 @@ class SecurityGuardTests(unittest.TestCase):
         agent = Agent({"agent": {"allowed_read_roots": [], "write_roots": []}})
         self.assertIn("unsupported argument", agent._execute_tool("media", {"action": "play", "extra": "x"}))
         self.assertIn("unsupported value", agent._execute_tool("media", {"action": "launch"}))
+
+    def test_plugin_names_are_validated_before_import(self) -> None:
+        config = {"agent": {"plugin_modules": ["__import__"]}}
+        with self.assertRaises(RuntimeError):
+            build_registry(config, AuditLog(), Path.cwd())
+
+    def test_browser_url_boundary_rejects_unsafe_targets(self) -> None:
+        self.assertEqual(_allowed_url("https://example.test/path", ["example.test"]), "https://example.test/path")
+        with self.assertRaises(ToolError):
+            _allowed_url("http://example.test", ["example.test"])
+        with self.assertRaises(ToolError):
+            _allowed_url("https://other.test", ["example.test"])
+        with self.assertRaises(ToolError):
+            _allowed_url("https://user:password@example.test", ["example.test"])
 
 
 if __name__ == "__main__":

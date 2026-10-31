@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     },
     "audio": {
         "source": "",
+        "backend": "parec",
         "rate": 16000,
         "chunk_ms": 50,
         "calibration_ms": 350,
@@ -91,6 +92,14 @@ DEFAULT_CONFIG = {
         "apps": DEFAULT_APPS,
         "services": {},
         "power_actions": ["suspend", "hibernate", "poweroff", "reboot"],
+        "plugin_modules": [],
+        "browser": {
+            "enabled": False,
+            "engine": "chromium",
+            "headless": True,
+            "allowed_domains": [],
+            "profile_dir": str(DATA_DIR / "browser-profile"),
+        },
     },
 }
 

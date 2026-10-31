@@ -1,0 +1,2 @@
+sounddevice>=0.5,<1
+webrtcvad-wheels>=2.0,<3

@@ -23,6 +23,8 @@ A tool marked **confirmation** requires explicit approval before it runs. Read [
 | `system_info` | Safe | Reads memory, disk, uptime, GPU, CPU, kernel, or a summary |
 | `battery` | Safe | Reads battery charge and charging status |
 | `web_search` | Confirmation | Searches DuckDuckGo HTML for bounded reference results; returned web text is untrusted |
+| `reminder` | Confirmation | Stores local reminders and notifies when due during an active wake session |
+| `email_draft` | Confirmation | Writes a local `.eml` draft; never sends email |
 | `clipboard_read` | Confirmation | Reads the current clipboard into the request context |
 | `clipboard_write` | Safe | Copies text to the clipboard |
 | `list_files` | Safe | Lists a directory inside the read roots |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import array
 import math
 import os
+import queue
 import select
 import subprocess
 import sys
@@ -159,6 +160,23 @@ def record_utterance(
     start_timeout = float(start_timeout if start_timeout is not None else cfg_get(config, "audio.start_timeout", 6))
     beeps = bool(beeps if beeps is not None else cfg_get(config, "audio.beeps", False))
     source = str(cfg_get(config, "audio.source", "") or "")
+    backend = str(cfg_get(config, "audio.backend", "parec")).lower()
+    if backend == "sounddevice":
+        return _record_sounddevice(
+            config,
+            rate=rate,
+            chunk_ms=chunk_ms,
+            calibration_ms=calibration_ms,
+            min_rms=min_rms,
+            silence_ms=silence_ms,
+            max_seconds=max_seconds,
+            start_timeout=start_timeout,
+            stop_requested=stop_requested,
+            speech_started=speech_started,
+            capture_ready=capture_ready,
+        )
+    if backend != "parec":
+        raise AudioError("audio.backend must be parec or sounddevice.")
 
     argv = _capture_command(rate, source)
     try:
@@ -299,6 +317,98 @@ def record_utterance(
     path = Path(name)
     _write_wav(path, chunks, rate)
     print(f"Captured {duration:.1f}s.", file=sys.stderr, flush=True)
+    return path
+
+
+def _record_sounddevice(
+    config: dict,
+    *,
+    rate: int,
+    chunk_ms: int,
+    calibration_ms: int,
+    min_rms: float,
+    silence_ms: int,
+    max_seconds: float,
+    start_timeout: float,
+    stop_requested: Callable[[], bool] | None,
+    speech_started: Callable[[], None] | None,
+    capture_ready: Callable[[], None] | None,
+) -> Path | None:
+    try:
+        import sounddevice as sd
+        import webrtcvad
+    except (ImportError, OSError) as exc:
+        raise AudioError("sounddevice streaming requires requirements-streaming.txt.") from exc
+
+    chunk_ms = 20
+    chunk_samples = int(rate * chunk_ms / 1000)
+    audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=20)
+    vad = webrtcvad.Vad(2)
+
+    def callback(indata, frames, time_info, status) -> None:
+        try:
+            audio_queue.put_nowait(bytes(indata))
+        except queue.Full:
+            pass
+
+    chunks: list[bytes] = []
+    pre_roll: deque[bytes] = deque(maxlen=max(2, int(300 / chunk_ms)))
+    started_at = time.monotonic()
+    speech_started_at = 0.0
+    speech_run = 0
+    silence_run = 0
+    in_speech = False
+    ready = False
+    try:
+        with sd.RawInputStream(
+            samplerate=rate,
+            blocksize=chunk_samples,
+            channels=1,
+            dtype="int16",
+            device=str(cfg_get(config, "audio.source", "") or "") or None,
+            callback=callback,
+        ):
+            if capture_ready:
+                capture_ready()
+            ready = True
+            while True:
+                if stop_requested and stop_requested():
+                    return None
+                elapsed = time.monotonic() - started_at
+                if not in_speech and elapsed > start_timeout:
+                    break
+                try:
+                    chunk = audio_queue.get(timeout=0.25)
+                except queue.Empty:
+                    continue
+                is_speech = vad.is_speech(chunk, rate)
+                if not in_speech:
+                    pre_roll.append(chunk)
+                    speech_run = speech_run + 1 if is_speech else 0
+                    if speech_run >= 3:
+                        in_speech = True
+                        speech_started_at = elapsed
+                        if speech_started:
+                            speech_started()
+                        chunks.extend(pre_roll)
+                        pre_roll.clear()
+                else:
+                    chunks.append(chunk)
+                    silence_run = 0 if is_speech else silence_run + chunk_ms
+                    if silence_run >= silence_ms or elapsed - speech_started_at >= max_seconds:
+                        break
+    except Exception as exc:
+        if not ready:
+            raise AudioError(f"Cannot start sounddevice capture: {exc}") from exc
+        raise AudioError(f"Sounddevice capture failed: {exc}") from exc
+    if stop_requested and stop_requested():
+        return None
+    if not chunks or not in_speech:
+        return None
+    fd_out, name = tempfile.mkstemp(prefix="voice-agent-", suffix=".wav", dir=str(CACHE_DIR))
+    os.close(fd_out)
+    path = Path(name)
+    _write_wav(path, chunks, rate)
     return path
 
 

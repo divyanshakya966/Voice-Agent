@@ -113,5 +113,8 @@ Configuration is merged over defaults and stored as JSON with mode `0600`. Runti
 - Explicitly started continuous session instead of an always-on background daemon
 - No telemetry or cloud dependencies
 - Fixed tools instead of shell access
+- Capability-scoped plugins for broad user-level services and applications
+- Optional systemd user supervision for restartable continuous sessions
+- Optional sounddevice/WebRTC-VAD streaming capture with PipeWire echo-cancel source support
 - Conservative defaults, with explicit opt-in for broader access
 - Low idle cost: no process remains after `stop`, and the model unloads explicitly

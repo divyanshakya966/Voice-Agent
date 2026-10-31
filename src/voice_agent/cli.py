@@ -25,6 +25,7 @@ from .config import (
 from .sandbox import available as bwrap_available
 from .sandbox import run_sandboxed
 from .tools import build_registry
+from .tools.personal import due_reminders
 from .util import atomic_write, notify, run, which
 
 
@@ -240,6 +241,9 @@ def _wake(args) -> int:
             if stop_requested():
                 session_stopped = True
                 break
+            for reminder in due_reminders():
+                notify("Jarvis reminder", reminder[:400])
+                print(f"Reminder: {reminder}", file=sys.stderr, flush=True)
             capture_started = time.monotonic()
             wav = record_utterance(
                 config,
