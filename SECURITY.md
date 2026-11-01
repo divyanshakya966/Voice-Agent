@@ -29,13 +29,13 @@ Do not include real secrets, private keys, or personal data in a report. Use red
 
 The project is intended to become a full-service general-purpose agent inside the signed-in user's session. “General-purpose” means broad, composable user-level capabilities, not unrestricted authority. New integrations must be exposed as narrow tools with typed arguments, explicit capability scope, input validation, audit records, and confirmation for mutating, private, network, or irreversible actions.
 
-The agent must not gain root privileges, silently invoke `sudo`, execute arbitrary model-generated shell text, read blocked secret paths, or control system-wide services through a generic escape hatch. Explicit wake/stop remains the activation model; the microphone and agent loop are inactive before `wake`. The optional systemd unit adds defense-in-depth restrictions but is not a VM boundary and does not isolate the process from the signed-in user's desktop session.
+The agent must not gain root privileges, silently invoke `sudo`, execute arbitrary model-generated shell text, read blocked secret paths, or control system-wide services through a generic escape hatch. Explicit wake/stop remains the microphone activation model; the microphone and agent loop are inactive before `wake`. The optional reminder service polls local state and sends notifications without capturing audio or starting the agent loop. The optional systemd units add defense-in-depth restrictions but are not VM boundaries and do not isolate the process from the signed-in user's desktop session.
 
 Configured plugin modules are trusted code and can access the same user account as Jarvis. They are an extensibility boundary, not a sandbox. Keep `agent.plugin_modules` empty unless each module has been reviewed and its dependencies are trusted.
 
-Browser automation is disabled by default. When enabled, it uses an isolated profile, accepts only HTTPS URLs on `agent.browser.allowed_domains`, returns bounded untrusted page text, and requires confirmation. It does not automate arbitrary clicks, form submissions, uploads, downloads, or the user's normal browser profile.
+Browser automation is disabled by default. When enabled, it uses an isolated profile, accepts only HTTPS URLs on `agent.browser.allowed_domains`, aborts page subrequests outside that allowlist, blocks service workers, returns bounded untrusted page text, and requires confirmation. `browser_interact` supports one bounded action per call: click, type, press, select, hover, or wait. It does not upload files, download files, run scripts, or use the user's normal browser profile. Page text remains untrusted and must never be followed as instructions.
 
-Local email integration is draft-only: no SMTP, IMAP, OAuth, or provider credentials are read or stored. Reminder data remains local and does not run a background scheduler yet.
+Local email integration is draft-only: drafts can be created, listed, shown, or deleted, but there is no SMTP, IMAP, OAuth, or provider credential access. Reminder data remains local. The optional reminder service runs `voice-agent reminders watch`, which polls locked local state, sends desktop notifications, and has no microphone or network access.
 
 Streaming audio remains local. The optional sounddevice backend passes microphone frames through WebRTC VAD; configure a PipeWire echo-cancel source in `audio.source` when speakers and microphone share a room. No audio is sent to a cloud service.
 
@@ -67,12 +67,18 @@ Reads are limited to `agent.allowed_read_roots`. Writes are limited to `agent.wr
 
 ### Confirmations
 
-Confirmation is required for:
+Confirmation is required for every tool marked dangerous in the registry, including:
 
 - `write_file`
 - `apply_patch`
 - `run_check`
 - `clipboard_read`
+- `web_search`
+- `reminder`
+- `email_draft`
+- `service`
+- `power`
+- `browser_open` and `browser_interact` when browser support is enabled
 
 Modes:
 
@@ -103,7 +109,8 @@ The command runs inside bubblewrap with:
 
 - All namespaces unshared by default
 - No network unless `agent.sandbox_network` is explicitly enabled
-- Read-only `/usr` and `/etc`
+- All Linux capabilities dropped
+- Read-only `/usr`, `/usr/local`, and `/etc`
 - A writable mount only for the workspace root
 - A temporary `/tmp`
 - A cleared environment with a fixed `PATH`
@@ -114,7 +121,7 @@ The sandbox is a meaningful containment layer, but it is not a virtual machine. 
 
 ### Secrets and redaction
 
-The agent blocks common sensitive paths such as SSH keys, keyrings, browser profiles, password stores, and token files. Audit strings and tool output are passed through a best-effort redactor for common API keys, tokens, passwords, and private keys.
+The agent blocks common sensitive paths such as SSH and GPG keys, keyrings, browser profiles, password stores, cloud/container credentials, signing keys, and token files. Reads are capped at 5 MB. Audit strings and tool output are passed through a best-effort redactor for common API keys, tokens, passwords, and private keys.
 
 Tools marked safe still have privacy impact. `screenshot` writes a full-screen image to disk, `clipboard_write` replaces the clipboard, and `security_scan` can reveal local system details in its output. Treat all tool output as private.
 
@@ -132,6 +139,8 @@ Events are appended as JSON Lines to the local state directory with mode `0600`.
 - Keep write roots narrow.
 - Keep `agent.services` empty unless a specific user service is needed; never add sensitive system units or broad service aliases.
 - Review the confirmation preview before approving a write or command.
+- Keep the browser domain allowlist narrow and treat all returned page text as untrusted.
+- Install the reminders service only if you want local notifications while wake is stopped; it does not need network access.
 - Use the smallest model that works for the task; tool-call quality varies by model.
 - Do not run the agent as root.
 - Back up work before approving patches or test commands in an important repository.

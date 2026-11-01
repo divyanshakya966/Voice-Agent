@@ -1,0 +1,29 @@
+[Unit]
+Description=Jarvis reminder scheduler
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/voice-agent reminders watch
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHome=read-only
+StateDirectory=voice-agent
+StateDirectoryMode=0700
+ReadWritePaths=%S/voice-agent
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=default.target

@@ -14,7 +14,10 @@ class STTError(RuntimeError):
 
 
 _JUNK = re.compile(
-    r"(\[BLANK_AUDIO\]|\[silence\]|\(silence\)|\[music\]|\(music\)|\[applause\]|\[noise\]|\[inaudible\])",
+    r"(?:\[\s*(?:blank_audio|silence|music|applause|noise|inaudible)\s*\]"
+    r"|\[\s*non[- ]english speech\s*\]"
+    r"|\(\s*(?:silence|music|applause|noise|inaudible)\s*\)"
+    r"|\(\s*speaking in (?:a )?foreign language\s*\))",
     re.IGNORECASE,
 )
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")

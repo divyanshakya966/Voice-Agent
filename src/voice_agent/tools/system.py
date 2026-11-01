@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,7 +12,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from ..config import cfg_get, expand_path
-from ..util import run, trim, which
+from ..util import desktop_popen, desktop_run, run, trim, which
 from .base import Tool, ToolContext, ToolError
 
 SINK = "@DEFAULT_AUDIO_SINK@"
@@ -24,18 +24,35 @@ class _SearchParser(HTMLParser):
         self.results: list[dict[str, str]] = []
         self._current: dict[str, str] | None = None
         self._field = ""
+        self._field_depth = 0
         self._text: list[str] = []
+
+    def _flush(self) -> None:
+        if self._current is not None and self._current.get("title") and len(self.results) < 8:
+            self._current["url"] = _search_result_url(self._current.get("url", ""))
+            self.results.append(self._current)
+        self._current = None
+        self._field = ""
+        self._field_depth = 0
+        self._text = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         classes = set((attributes.get("class") or "").split())
-        if "result__a" in classes and len(self.results) < 8:
+        if "result__a" in classes:
+            self._flush()
             self._current = {"title": "", "url": attributes.get("href") or "", "snippet": ""}
             self._field = "title"
+            self._field_depth = 1
             self._text = []
-        elif self._current is not None and "result__snippet" in classes:
+            return
+        if self._current is not None and "result__snippet" in classes and not self._field:
             self._field = "snippet"
+            self._field_depth = 1
             self._text = []
+            return
+        if self._field:
+            self._field_depth += 1
 
     def handle_data(self, data: str) -> None:
         if self._current is not None and self._field:
@@ -44,13 +61,34 @@ class _SearchParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if self._current is None or not self._field:
             return
+        self._field_depth -= 1
+        if self._field_depth > 0:
+            return
         value = re.sub(r"\s+", " ", " ".join(self._text)).strip()
         self._current[self._field] = value
-        if self._field == "title":
-            self.results.append(self._current)
-            self._current = None
-        self._field = ""
-        self._text = []
+        if self._field == "snippet":
+            self._flush()
+        else:
+            self._field = ""
+            self._field_depth = 0
+            self._text = []
+
+    def close(self) -> None:
+        super().close()
+        self._flush()
+
+
+def _search_result_url(href: str) -> str:
+    value = href.strip()
+    if value.startswith("//"):
+        value = "https:" + value
+    parsed = urllib.parse.urlparse(value)
+    host = (parsed.hostname or "").casefold()
+    if host in {"duckduckgo.com", "www.duckduckgo.com"} and parsed.path.startswith("/l/"):
+        target = urllib.parse.parse_qs(parsed.query).get("uddg", [""])[0]
+        if target:
+            value = target
+    return value
 
 
 def _web_search(args: dict, ctx: ToolContext) -> str:
@@ -72,6 +110,7 @@ def _web_search(args: dict, ctx: ToolContext) -> str:
         raise ToolError(f"Web search failed: {exc}") from exc
     parser = _SearchParser()
     parser.feed(body)
+    parser.close()
     results = parser.results[:count]
     if not results:
         return "No search results found."
@@ -91,7 +130,7 @@ def _web_search(args: dict, ctx: ToolContext) -> str:
 
 
 def _status_volume() -> str:
-    result = run(["wpctl", "get-volume", SINK], timeout=5)
+    result = desktop_run(["wpctl", "get-volume", SINK], timeout=5)
     raw = result.stdout.strip()
     match = re.search(r"Volume:\s*([0-9.]+)", raw)
     if match:
@@ -110,14 +149,14 @@ def _volume(args: dict, ctx: ToolContext) -> str:
     if action == "set":
         percent = float(args.get("percent", 50))
         percent = max(0.0, min(100.0, percent))
-        result = run(["wpctl", "set-volume", SINK, f"{percent:.0f}%"], timeout=5)
+        result = desktop_run(["wpctl", "set-volume", SINK, f"{percent:.0f}%"], timeout=5)
     elif action in {"up", "down"}:
         step = max(1.0, min(50.0, float(args.get("percent", 10))))
         sign = "+" if action == "up" else "-"
-        result = run(["wpctl", "set-volume", SINK, f"{step:.0f}%{sign}"], timeout=5)
+        result = desktop_run(["wpctl", "set-volume", SINK, f"{step:.0f}%{sign}"], timeout=5)
     elif action in {"mute", "unmute", "toggle_mute"}:
         value = {"mute": "1", "unmute": "0", "toggle_mute": "toggle"}[action]
-        result = run(["wpctl", "set-mute", SINK, value], timeout=5)
+        result = desktop_run(["wpctl", "set-mute", SINK, value], timeout=5)
     else:
         raise ToolError(f"Unsupported volume action: {action}")
     if result.returncode != 0:
@@ -152,9 +191,122 @@ def _mpris_names() -> list[str]:
     return [line.strip().strip('"') for line in result.stdout.splitlines() if "org.mpris.MediaPlayer2." in line]
 
 
+def _music_file(requested: str, ctx: ToolContext) -> Path:
+    roots = [expand_path(value).resolve() for value in cfg_get(ctx.config, "agent.music_roots", ["~/Music"])]
+    query = requested.strip()
+    if not query:
+        raise ToolError("Say the track name or give a file path from the music folder.")
+    path_query = Path(query)
+    if path_query.is_absolute() or path_query.parent != Path("."):
+        candidates = [expand_path(query), *(root / path_query for root in roots)]
+        for candidate in candidates:
+            if candidate.is_file():
+                resolved = candidate.resolve()
+                if any(resolved == root or root in resolved.parents for root in roots):
+                    return resolved
+        raise ToolError(f"Music path '{requested}' is outside the configured music roots.")
+    name = Path(query).name.casefold()
+    stem = Path(query).stem.casefold()
+    extensions = {".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"}
+    matches: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            for path in root.rglob("*"):
+                path_name = path.name.casefold()
+                path_stem = path.stem.casefold()
+                if path.is_file() and path.suffix.casefold() in extensions and (
+                    path_name == name or path_stem == stem or (len(stem) >= 3 and stem in path_stem)
+                ):
+                    matches.append(path.resolve())
+        except OSError:
+            continue
+    if not matches:
+        shown = ", ".join(str(root) for root in roots)
+        raise ToolError(f"No music track named '{requested}' was found under {shown}.")
+    return min(set(matches), key=lambda path: str(path).casefold())
+
+
+def _first_music_file(ctx: ToolContext) -> Path | None:
+    roots = [expand_path(value).resolve() for value in cfg_get(ctx.config, "agent.music_roots", ["~/Music"])]
+    extensions = {".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"}
+    matches: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            matches.extend(path.resolve() for path in root.rglob("*") if path.is_file() and path.suffix.casefold() in extensions)
+        except OSError:
+            continue
+    return min(set(matches), key=lambda path: str(path).casefold()) if matches else None
+
+
+def _launch_media_player(ctx: ToolContext, track: Path | None = None) -> None:
+    requested = str(cfg_get(ctx.config, "agent.media_player", "elisa")).strip().lower()
+    apps = cfg_get(ctx.config, "agent.apps", {}) or {}
+    normalized = {str(key).lower(): value for key, value in apps.items()}
+    argv = normalized.get(requested)
+    if not isinstance(argv, list) or not argv or not all(isinstance(part, str) for part in argv):
+        raise ToolError(f"Media player '{requested}' is not configured in agent.apps.")
+    if not which(argv[0]):
+        raise ToolError(f"Media player executable not found: {argv[0]}")
+    command = [*argv, str(track)] if track else list(argv)
+    try:
+        desktop_popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
+    except OSError as exc:
+        raise ToolError(f"Cannot launch {requested}: {exc}") from exc
+
+
+def _wait_for_player() -> list[str]:
+    for _ in range(10):
+        names = _mpris_names()
+        if names:
+            return names
+        time.sleep(0.5)
+    return []
+
+
+def _playerctl_has_player() -> bool:
+    if not which("playerctl"):
+        return bool(_mpris_names())
+    result = desktop_run(["playerctl", "-l"], timeout=5)
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 def _media(args: dict, ctx: ToolContext) -> str:
     action = str(args.get("action", "play_pause")).lower()
+    track = str(args.get("track", "") or args.get("path", "")).strip()
+    started_player = False
+    if action in {"play", "play_pause"} and track:
+        track_path = _music_file(track, ctx)
+        _launch_media_player(ctx, track_path)
+        if not _wait_for_player():
+            raise ToolError("Elisa was launched, but no MPRIS media player became available.")
+        started_player = True
+    elif action in {"play", "play_pause"} and not _playerctl_has_player():
+        _launch_media_player(ctx, _first_music_file(ctx))
+        if not _wait_for_player():
+            raise ToolError("Elisa was launched, but no MPRIS media player became available.")
+        started_player = True
+    if started_player and action == "play_pause":
+        action = "play"
     if which("playerctl"):
+        if action == "metadata":
+            result = desktop_run(
+                ["playerctl", "metadata", "--format", "{{artist}} - {{title}} ({{album}})"],
+                timeout=5,
+            )
+            if result.returncode != 0:
+                raise ToolError(result.stderr.strip() or "No media player is running.")
+            return result.stdout.strip() or "No track metadata is available."
         mapping = {
             "play_pause": "play-pause",
             "play": "play",
@@ -166,7 +318,7 @@ def _media(args: dict, ctx: ToolContext) -> str:
         }
         if action not in mapping:
             raise ToolError(f"Unsupported media action: {action}")
-        result = run(["playerctl", mapping[action]], timeout=5)
+        result = desktop_run(["playerctl", mapping[action]], timeout=5)
         if result.returncode != 0:
             raise ToolError(result.stderr.strip() or "No media player is running.")
         return result.stdout.strip() or f"Media {action} sent."
@@ -183,7 +335,7 @@ def _media(args: dict, ctx: ToolContext) -> str:
         "stop": "Stop",
     }
     if action == "status":
-        result = run(
+        result = desktop_run(
             [
                 "dbus-send",
                 "--session",
@@ -198,9 +350,11 @@ def _media(args: dict, ctx: ToolContext) -> str:
             timeout=5,
         )
         return result.stdout.strip() or "Media status unavailable."
+    if action == "metadata":
+        raise ToolError("Track metadata requires playerctl.")
     if action not in methods:
         raise ToolError(f"Unsupported media action: {action}")
-    result = run(
+    result = desktop_run(
         [
             "dbus-send",
             "--session",
@@ -217,11 +371,11 @@ def _media(args: dict, ctx: ToolContext) -> str:
 
 
 def _lock(args: dict, ctx: ToolContext) -> str:
-    result = run(["loginctl", "lock-session"], timeout=10)
+    result = desktop_run(["loginctl", "lock-session"], timeout=10)
     if result.returncode == 0:
         return "Screen locked."
     if which("qdbus-qt6"):
-        result = run(
+        result = desktop_run(
             ["qdbus-qt6", "org.kde.screensaver", "/ScreenSaver", "org.freedesktop.ScreenSaver.Lock"],
             timeout=10,
         )
@@ -237,7 +391,7 @@ def _screenshot(args: dict, ctx: ToolContext) -> str:
     directory.mkdir(parents=True, exist_ok=True)
     name = "voice-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".png"
     path = directory / name
-    result = run(["spectacle", "-b", "-n", "-f", "-o", str(path)], timeout=30)
+    result = desktop_run(["spectacle", "-b", "-n", "-f", "-o", str(path)], timeout=30)
     if result.returncode != 0 or not path.exists():
         raise ToolError(result.stderr.strip() or "Screenshot failed.")
     return f"Screenshot saved to {path}"
@@ -250,7 +404,7 @@ def _notify(args: dict, ctx: ToolContext) -> str:
     if ctx.notifier:
         ctx.notifier("Jarvis", message[:500])
     elif which("notify-send"):
-        run(["notify-send", "--app-name=Jarvis", "Jarvis", message[:500]], timeout=5)
+        desktop_run(["notify-send", "--app-name=Jarvis", "Jarvis", message[:500]], timeout=5)
     else:
         raise ToolError("notify-send is missing.")
     return "Notification sent."
@@ -264,7 +418,6 @@ def _system_info(args: dict, ctx: ToolContext) -> str:
         "uptime": ["uptime"],
         "gpu": [
             "nvidia-smi",
-            "--query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu",
             "--format=csv,noheader",
         ],
         "cpu": ["lscpu"],
@@ -275,7 +428,7 @@ def _system_info(args: dict, ctx: ToolContext) -> str:
         raise ToolError("Unknown system info query. Use memory, disk, uptime, gpu, cpu, kernel, or summary.")
     sections = []
     for item in order:
-        result = run(commands[item], timeout=10)
+        result = desktop_run(commands[item], timeout=10)
         output = (result.stdout or result.stderr).strip()
         if not output:
             output = "unavailable"
@@ -296,10 +449,10 @@ def _open_app(args: dict, ctx: ToolContext) -> str:
     argv = normalized[requested]
     if not isinstance(argv, list) or not argv or not all(isinstance(part, str) for part in argv):
         raise ToolError("Invalid app entry in config.")
-    if not shutil.which(argv[0]):
+    if not which(argv[0]):
         raise ToolError(f"Executable not found: {argv[0]}")
     try:
-        subprocess.Popen(
+        desktop_popen(
             argv,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -310,6 +463,31 @@ def _open_app(args: dict, ctx: ToolContext) -> str:
     except OSError as exc:
         raise ToolError(f"Cannot launch {requested}: {exc}") from exc
     return f"Opened {requested}."
+
+
+def _open_url(args: dict, ctx: ToolContext) -> str:
+    value = str(args.get("url", "")).strip()
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ToolError("A website URL must use HTTP or HTTPS and must not contain embedded credentials.")
+    apps = cfg_get(ctx.config, "agent.apps", {}) or {}
+    browser = apps.get("browser")
+    if not isinstance(browser, list) or not browser or not all(isinstance(part, str) for part in browser):
+        raise ToolError("The browser is not configured in agent.apps.")
+    if not which(browser[0]):
+        raise ToolError(f"Browser executable not found: {browser[0]}")
+    try:
+        desktop_popen(
+            [*browser, value],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
+    except OSError as exc:
+        raise ToolError(f"Cannot open website: {exc}") from exc
+    return f"Opened {value} in the browser."
 
 
 def _service(args: dict, ctx: ToolContext) -> str:
@@ -325,7 +503,7 @@ def _service(args: dict, ctx: ToolContext) -> str:
     action = str(args.get("action", "status")).lower()
     if action not in {"status", "start", "stop", "restart"}:
         raise ToolError("Unsupported service action.")
-    result = run(["systemctl", "--user", action, unit], timeout=15)
+    result = desktop_run(["systemctl", "--user", action, unit], timeout=15)
     if result.returncode != 0:
         raise ToolError(result.stderr.strip() or f"Service {action} failed.")
     return result.stdout.strip() or f"User service {requested} {action} completed."
@@ -343,7 +521,9 @@ def _power(args: dict, ctx: ToolContext) -> str:
         "poweroff": ["systemctl", "poweroff"],
         "reboot": ["systemctl", "reboot"],
     }
-    result = run(commands[action], timeout=15)
+    if action not in commands:
+        raise ToolError(f"Unsupported power action: {action}")
+    result = desktop_run(commands[action], timeout=15)
     if result.returncode != 0:
         raise ToolError(result.stderr.strip() or f"Could not {action} the system.")
     return f"System {action} requested."
@@ -352,9 +532,9 @@ def _power(args: dict, ctx: ToolContext) -> str:
 def _clipboard_read(args: dict, ctx: ToolContext) -> str:
     command = "wl-paste" if which("wl-paste") else ("xclip" if which("xclip") else None)
     if command == "wl-paste":
-        result = run(["wl-paste", "--no-newline"], timeout=5)
+        result = desktop_run(["wl-paste", "--no-newline"], timeout=5)
     elif command == "xclip":
-        result = run(["xclip", "-selection", "clipboard", "-o"], timeout=5)
+        result = desktop_run(["xclip", "-selection", "clipboard", "-o"], timeout=5)
     else:
         raise ToolError("No clipboard tool found. Install wl-clipboard.")
     if result.returncode != 0:
@@ -365,9 +545,9 @@ def _clipboard_read(args: dict, ctx: ToolContext) -> str:
 def _clipboard_write(args: dict, ctx: ToolContext) -> str:
     text = str(args.get("text", ""))
     if which("wl-copy"):
-        result = run(["wl-copy"], timeout=5, input_text=text)
+        result = desktop_run(["wl-copy"], timeout=5, input_text=text)
     elif which("xclip"):
-        result = run(["xclip", "-selection", "clipboard"], timeout=5, input_text=text)
+        result = desktop_run(["xclip", "-selection", "clipboard"], timeout=5, input_text=text)
     else:
         raise ToolError("No clipboard tool found. Install wl-clipboard.")
     if result.returncode != 0:
@@ -393,6 +573,18 @@ def build_tools(ctx: ToolContext) -> list[Tool]:
             summary=lambda args: f"open app {args.get('name', '')}",
         ),
         Tool(
+            "open_url",
+            "Open any HTTP or HTTPS website in the configured visible desktop browser.",
+            {
+                "type": "object",
+                "properties": {"url": {"type": "string", "maxLength": 2000}},
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+            _open_url,
+            summary=lambda args: f"open website {args.get('url', '')}",
+        ),
+        Tool(
             "volume",
             "Read or change default volume.",
             {
@@ -412,14 +604,16 @@ def build_tools(ctx: ToolContext) -> list[Tool]:
         ),
         Tool(
             "media",
-            "Control the active allowlisted MPRIS media player. For 'play music', 'play a song', or 'resume music', use action='play'.",
+                "Control the media player. For 'play music' or 'resume music', use action='play'. For a local track, pass its name or path in track; it is searched only under agent.music_roots and opened with the configured media player.",
             {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["play_pause", "play", "pause", "next", "previous", "stop", "status"],
-                    }
+                        "enum": ["play_pause", "play", "pause", "next", "previous", "stop", "status", "metadata"],
+                    },
+                    "track": {"type": "string", "maxLength": 500},
+                    "path": {"type": "string", "maxLength": 1000},
                 },
                 "required": ["action"],
                 "additionalProperties": False,

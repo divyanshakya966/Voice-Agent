@@ -21,6 +21,18 @@ SENSITIVE_DIRS = {
     ".mozilla",
     ".thunderbird",
     ".config",
+    "google-chrome",
+    "chromium",
+    "BraveSoftware",
+    "microsoft-edge",
+    "vivaldi",
+    "opera",
+    "browser-profile",
+    ".aws",
+    ".azure",
+    ".docker",
+    ".kube",
+    ".terraform.d",
     "keyrings",
     ".local/share/keyrings",
     "wallet",
@@ -29,16 +41,24 @@ SENSITIVE_NAMES = {
     ".env",
     ".netrc",
     ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    ".vault-token",
     "id_rsa",
     "id_dsa",
     "id_ecdsa",
     "id_ed25519",
     "credentials",
+    "credentials.json",
     "secrets",
     "secrets.json",
+    "service-account.json",
+    "application_default_credentials.json",
+    "kubeconfig",
+    "auth.json",
     "wallet.dat",
 }
-SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".ovpn"}
+SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".ovpn", ".asc", ".gpg"}
 SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -167,6 +187,12 @@ def _read_file(args: dict, ctx: ToolContext) -> str:
     if not path.is_file():
         raise ToolError(f"Not a regular file: {path}")
     try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise ToolError(f"Cannot read {path}: {exc}") from exc
+    if size > 5_000_000:
+        raise ToolError("File is too large to read (limit 5 MB).")
+    try:
         data = path.read_bytes()
     except OSError as exc:
         raise ToolError(f"Cannot read {path}: {exc}") from exc
@@ -193,12 +219,19 @@ def _search_files(args: dict, ctx: ToolContext) -> str:
     matches: list[str] = []
     scanned = 0
     for current, dirs, files in os.walk(root, followlinks=False):
-        dirs[:] = [name for name in dirs if name not in SKIP_DIRS and not name.startswith(".git")]
+        dirs[:] = [
+            name
+            for name in dirs
+            if name not in SKIP_DIRS
+            and not name.startswith(".git")
+            and not (Path(current) / name).is_symlink()
+            and not _sensitive(Path(current) / name)
+        ]
         for filename in files:
             if len(matches) >= max_results or scanned >= 4000:
                 break
             path = Path(current) / filename
-            if _sensitive(path):
+            if path.is_symlink() or _sensitive(path):
                 continue
             try:
                 if path.stat().st_size > 1_500_000:
@@ -398,6 +431,8 @@ def _validate_check(command: str) -> list[str]:
             raise ToolError("ruff is limited to check or format --check.")
         if args[0] == "format" and "--check" not in args:
             raise ToolError("ruff format requires --check.")
+        if any(arg in {"--fix", "--unsafe-fixes"} or arg.startswith("--fix=") for arg in args[1:]):
+            raise ToolError("ruff fix options are not allowed in the sandbox.")
         return tokens
 
     if executable in {"npm", "pnpm", "yarn"}:
@@ -414,6 +449,8 @@ def _validate_check(command: str) -> list[str]:
             raise ToolError("cargo is limited to test, check, build, clippy, or fmt --check.")
         if args[0] == "fmt" and "--check" not in args:
             raise ToolError("cargo fmt requires --check.")
+        if args[0] == "clippy" and any(arg == "--fix" or arg.startswith("--fix=") for arg in args[1:]):
+            raise ToolError("cargo clippy --fix is not allowed in the sandbox.")
         return tokens
 
     if executable == "go":

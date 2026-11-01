@@ -6,7 +6,7 @@ Start with:
 ./bin/voice-agent doctor
 ```
 
-`doctor` separates critical failures from optional warnings. The optional pieces are `playerctl`, `kdialog`, `spectacle`, `wpctl`, `wl-clipboard`, and `notify-send`.
+`doctor` separates critical failures from optional warnings. Optional pieces include `playerctl`, `kdialog`, `spectacle`, `wpctl`, `wl-clipboard`, `notify-send`, the sounddevice streaming backend, and Playwright browser support.
 
 ## `voice-agent` is not found
 
@@ -74,7 +74,7 @@ Test the TTS path directly:
 ./bin/voice-agent say "Voice agent test"
 ```
 
-Check the output device and volume with `wpctl status`, `pactl info`, or your desktop audio settings. The `doctor` command reports whether audio playback tools are present.
+Check the output device and volume with `wpctl status`, `pactl info`, or your desktop audio settings. The `doctor` command reports whether audio playback tools are present. Confirm `tts.engine` and `tts.fallback` name installed backends; setting both to `none` intentionally disables speech. If answers are spoken but progress cues are not, ensure `tts.status_updates` is `true`.
 
 ## The Ollama model is missing
 
@@ -151,6 +151,7 @@ The default read roots are:
 - `~/Projects`
 - `~/Documents`
 - `~/Desktop`
+- `~/Music`
 
 The default write root is `~/GitHub`. Update the roots in the config if your projects live elsewhere.
 
@@ -166,7 +167,21 @@ The scan is read-only, but its output can contain local system details. Review t
 
 ## `playerctl` warning
 
-`playerctl` is optional. The media tool falls back to MPRIS over D-Bus. Install `playerctl` if you want the simpler backend.
+`playerctl` is optional. The media tool falls back to MPRIS over D-Bus for transport controls and status. Install `playerctl` if you want the simpler backend and track metadata.
+
+## Reminders do not notify
+
+Check the stored reminders:
+
+```bash
+./bin/voice-agent reminders list
+```
+
+Reminders notify during an active `wake` session. To deliver them while wake is stopped, run `./bin/voice-agent reminders watch` or install `systemd/voice-agent-reminders.service`. Ensure `notify-send` or `kdialog` is available in the user session.
+
+## Browser tools are unavailable
+
+Install `requirements-browser.txt`, install the matching Playwright engine, then set `agent.browser.enabled` to `true` and add at least one trusted HTTPS domain to `agent.browser.allowed_domains`. Run `./bin/voice-agent doctor` to confirm the optional browser dependencies.
 
 ## Audit log and private data
 

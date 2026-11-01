@@ -1,18 +1,20 @@
 # Jarvis Voice Agent
 
-A private, local-first user-level voice agent foundation for Linux desktops. Speech recognition, language inference, and text-to-speech run on your machine. Jarvis currently coordinates desktop actions, files, media, system status, user services, web research, and sandboxed development tasks through a capability-controlled tool registry.
+A private, local-first user-level voice agent foundation for Linux desktops. Speech recognition, language inference, and text-to-speech run on your machine. Jarvis currently coordinates desktop actions, files, media, system status, user services, web research, optional browser automation, reminders, email drafts, and sandboxed development tasks through a capability-controlled tool registry.
 
-Jarvis is designed to grow into a general-purpose autonomous agent within the signed-in user's security boundary. Browser automation, productivity integrations, window management, richer media workflows, and additional user-level plugins are expansion targets, not all currently shipped features. It does not use root privileges, unrestricted shell execution, arbitrary system-service control, or silent approval of sensitive actions.
+Jarvis is designed to grow into a general-purpose autonomous agent within the signed-in user's security boundary. Productivity integrations, window management, richer media workflows, and additional user-level plugins are expansion targets, not all currently shipped features. It does not use root privileges, unrestricted shell execution, arbitrary system-service control, or silent approval of sensitive actions.
 
 ## Highlights
 
 - Offline speech-to-text with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
 - Offline text-to-speech with [Piper](https://github.com/rhasspy/piper), with `espeak-ng` fallback
+- Spoken acknowledgements and tool-progress cues during wake sessions
 - Local language model through [Ollama](https://ollama.com)
 - Explicit wake/stop voice sessions with bounded in-memory conversation history
 - Fixed tool allowlist instead of open-ended shell access
 - Capability-based expansion path for browser, productivity, desktop, and user-service integrations
 - Optional systemd user-service deployment for restartable continuous sessions
+- Optional background reminder scheduler and local email draft management
 - GUI, voice, or terminal confirmation for writes, commands, and clipboard reads
 - Bubblewrap sandbox for development checks, network disabled by default
 - Audit log with best-effort secret redaction
@@ -89,6 +91,7 @@ Model licenses and behavior are controlled by their upstream projects. Some Qwen
 | `voice-agent init` | Create the user config and data directories |
 | `voice-agent wake` | Start a continuous voice session until stopped |
 | `voice-agent stop` | Stop the active continuous voice session |
+| `voice-agent reminders [list\|create\|cancel\|watch]` | Manage local reminders or run the background notifier |
 | `voice-agent ask "..."` | Send text to the agent without using the microphone |
 | `voice-agent say "..."` | Test offline text-to-speech |
 | `voice-agent transcribe file.wav` | Transcribe an existing WAV file |
@@ -96,6 +99,7 @@ Model licenses and behavior are controlled by their upstream projects. Some Qwen
 | `voice-agent tools` | List the fixed tool registry |
 | `voice-agent audit -n 20` | Show recent local audit records |
 | `voice-agent config` | Print the effective configuration |
+| `voice-agent version` | Print the installed version |
 | `voice-agent install-desktop` | Install a user desktop entry and print wake/stop shortcut steps |
 
 Use `wake --cwd` or `wake --model` to override the workspace or Ollama model for a continuous session.
@@ -126,6 +130,8 @@ Default locations follow the XDG base directory specification:
 | Binaries and models | `~/.local/share/voice-agent/` |
 | Audit log | `~/.local/state/voice-agent/audit.jsonl` |
 | File backups | `~/.local/state/voice-agent/backups/` |
+| Reminders | `~/.local/state/voice-agent/reminders.json` |
+| Email drafts | `~/.local/state/voice-agent/email-drafts/` |
 | Temporary audio | `~/.cache/voice-agent/` and the system temp directory |
 
 See [docs/PRIVACY.md](docs/PRIVACY.md) for details and deletion instructions.
@@ -147,7 +153,7 @@ This repository contains source code and documentation only. Local configuration
 ## Known limitations
 
 - Primary support is Linux with KDE Plasma and PipeWire; other desktops may need configuration changes.
-- There is no hidden background daemon. The explicit `wake` command keeps the microphone active until `stop` is invoked.
+- There is no always-on microphone daemon. The explicit `wake` command keeps the microphone active until `stop` is invoked; the optional reminders service only polls local state and never captures audio.
 - Each voice turn is processed independently; follow-up turns remain available during the active wake session.
 - Small local models can make mistakes, ignore style instructions, or choose an unexpected tool. Confirmation and tool validation reduce the impact, but do not eliminate it.
 - The sandboxed checks still execute project code when you approve `pytest`, `npm test`, or similar commands. Treat any workspace you scan as potentially untrusted.

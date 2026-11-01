@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from pathlib import Path
 
 APP = "voice-agent"
@@ -15,6 +14,7 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULT_APPS = {
     "browser": ["firefox"],
+    "spotify": ["spotify"],
     "firefox": ["firefox"],
     "files": ["dolphin"],
     "dolphin": ["dolphin"],
@@ -46,16 +46,18 @@ DEFAULT_CONFIG = {
         "noise_multiplier": 2.8,
         "speech_chunks": 3,
         "silence_ms": 5000,
-        "wake_silence_ms": 1200,
+        "wake_silence_ms": 900,
         "max_seconds": 20,
         "start_timeout": 6,
-        "beeps": False,
         "barge_in": False,
     },
     "stt": {
         "language": "en",
         "threads": 8,
         "timeout": 120,
+        "confirm_transcript": False,
+        "confirmation_retries": 1,
+        "confirmation_max_chars": 180,
     },
     "tts": {
         "enabled": True,
@@ -63,8 +65,11 @@ DEFAULT_CONFIG = {
         "fallback": "espeak-ng",
         "max_chars": 350,
         "timeout": 60,
+        "status_updates": True,
+        "acknowledgement": True,
     },
     "llm": {
+        "url": "http://127.0.0.1:11434",
         "model": "qwen3:1.7b",
         "keep_alive": "30m",
         "num_ctx": 4096,
@@ -77,11 +82,13 @@ DEFAULT_CONFIG = {
     "agent": {
         "confirmation": "gui",
         "session_history_messages": 24,
+        "session_history_chars": 12000,
         "allowed_read_roots": [
             "~/GitHub",
             "~/Projects",
             "~/Documents",
             "~/Desktop",
+            "~/Music",
         ],
         "write_roots": [
             "~/GitHub",
@@ -90,6 +97,8 @@ DEFAULT_CONFIG = {
         "command_timeout": 90,
         "command_output_limit": 20000,
         "apps": DEFAULT_APPS,
+        "media_player": "elisa",
+        "music_roots": ["~/Music"],
         "services": {},
         "power_actions": ["suspend", "hibernate", "poweroff", "reboot"],
         "plugin_modules": [],
@@ -130,6 +139,10 @@ def load_config(create: bool = True) -> dict:
     elif not create:
         raise FileNotFoundError(CONFIG_PATH)
     config = _deep_merge(DEFAULT_CONFIG, user)
+    old_default_roots = ["~/GitHub", "~/Projects", "~/Documents", "~/Desktop"]
+    configured_roots = config.get("agent", {}).get("allowed_read_roots")
+    if configured_roots == old_default_roots:
+        config["agent"]["allowed_read_roots"] = [*configured_roots, "~/Music"]
     if create and not CONFIG_PATH.exists():
         save_config(config)
     return config
@@ -162,4 +175,6 @@ def find_executable(configured: str, name: str) -> str | None:
     path = expand_path(configured)
     if path.is_file() and os.access(path, os.X_OK):
         return str(path)
-    return shutil.which(name)
+    from .util import which
+
+    return which(name)

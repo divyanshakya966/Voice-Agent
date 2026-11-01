@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .config import CACHE_DIR, cfg_get
-from .util import which
+from .util import desktop_popen, which
 
 
 class AudioError(RuntimeError):
@@ -38,34 +38,6 @@ def _write_wav(path: Path, chunks: list[bytes], rate: int) -> None:
         handle.writeframes(b"".join(chunks))
 
 
-def _make_beep(path: Path, frequency: float, duration: float = 0.07, volume: float = 0.12) -> None:
-    rate = 44100
-    count = int(rate * duration)
-    frames = array.array("h")
-    fade = max(1, int(rate * 0.006))
-    for index in range(count):
-        envelope = 1.0
-        if index < fade:
-            envelope = index / fade
-        elif index > count - fade:
-            envelope = (count - index) / fade
-        value = int(32767 * volume * envelope * math.sin(2 * math.pi * frequency * index / rate))
-        frames.append(value)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(rate)
-        handle.writeframes(frames.tobytes())
-
-
-def _beep_path(name: str, frequency: float) -> Path:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = CACHE_DIR / name
-    if not path.exists():
-        _make_beep(path, frequency)
-    return path
-
-
 def play_file(
     path: str | Path,
     timeout: float = 30,
@@ -81,7 +53,7 @@ def play_file(
             continue
         process: subprocess.Popen | None = None
         try:
-            process = subprocess.Popen(
+            process = desktop_popen(
                 [*argv, str(path)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -104,20 +76,6 @@ def play_file(
                 process.kill()
             continue
     return False
-
-
-def beep(kind: str, enabled: bool = True) -> None:
-    if not enabled:
-        return
-    try:
-        if kind == "start":
-            play_file(_beep_path("beep-start.wav", 880), timeout=5)
-        elif kind == "stop":
-            play_file(_beep_path("beep-stop.wav", 520), timeout=5)
-        elif kind == "error":
-            play_file(_beep_path("beep-error.wav", 320), timeout=5)
-    except (OSError, AudioError):
-        pass
 
 
 def _capture_command(rate: int, source: str) -> list[str]:
@@ -143,7 +101,6 @@ def record_utterance(
     max_seconds: float | None = None,
     silence_ms: int | None = None,
     calibration_ms: int | None = None,
-    beeps: bool | None = None,
     stop_requested: Callable[[], bool] | None = None,
     speech_started: Callable[[], None] | None = None,
     capture_ready: Callable[[], None] | None = None,
@@ -154,11 +111,10 @@ def record_utterance(
     calibration_ms = int(calibration_ms if calibration_ms is not None else cfg_get(config, "audio.calibration_ms", 350))
     min_rms = float(cfg_get(config, "audio.min_rms", 180))
     noise_multiplier = float(cfg_get(config, "audio.noise_multiplier", 2.8))
-    speech_chunks_needed = int(cfg_get(config, "audio.speech_chunks", 3))
+    speech_chunks_needed = max(1, int(cfg_get(config, "audio.speech_chunks", 3)))
     silence_ms = int(silence_ms if silence_ms is not None else cfg_get(config, "audio.silence_ms", 5000))
     max_seconds = float(max_seconds if max_seconds is not None else cfg_get(config, "audio.max_seconds", 20))
     start_timeout = float(start_timeout if start_timeout is not None else cfg_get(config, "audio.start_timeout", 6))
-    beeps = bool(beeps if beeps is not None else cfg_get(config, "audio.beeps", False))
     source = str(cfg_get(config, "audio.source", "") or "")
     backend = str(cfg_get(config, "audio.backend", "parec")).lower()
     if backend == "sounddevice":
@@ -180,7 +136,7 @@ def record_utterance(
 
     argv = _capture_command(rate, source)
     try:
-        proc = subprocess.Popen(
+        proc = desktop_popen(
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -275,10 +231,8 @@ def record_utterance(
                     else:
                         silence_run += 1
                     if silence_run * chunk_ms >= silence_ms:
-                        beep("stop", beeps)
                         break
                     if elapsed - speech_started_at >= max_seconds:
-                        beep("stop", beeps)
                         break
             if not calibrated and time.monotonic() - started_at > (calibration_ms / 1000 + 1.0):
                 calibrated = True
@@ -342,6 +296,7 @@ def _record_sounddevice(
 
     chunk_ms = 20
     chunk_samples = int(rate * chunk_ms / 1000)
+    speech_chunks_needed = max(1, int(cfg_get(config, "audio.speech_chunks", 3)))
     audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=20)
     vad = webrtcvad.Vad(2)
 
@@ -385,7 +340,7 @@ def _record_sounddevice(
                 if not in_speech:
                     pre_roll.append(chunk)
                     speech_run = speech_run + 1 if is_speech else 0
-                    if speech_run >= 3:
+                    if speech_run >= speech_chunks_needed:
                         in_speech = True
                         speech_started_at = elapsed
                         if speech_started:
@@ -413,12 +368,16 @@ def _record_sounddevice(
 
 
 def record_fixed(config: dict, seconds: float) -> Path:
+    if seconds <= 0:
+        raise AudioError("Recording duration must be greater than zero.")
     rate = int(cfg_get(config, "audio.rate", 16000))
     source = str(cfg_get(config, "audio.source", "") or "")
+    if str(cfg_get(config, "audio.backend", "parec")).lower() == "sounddevice":
+        return _record_sounddevice_fixed(rate, source, seconds)
     argv = _capture_command(rate, source)
     chunk_bytes = int(rate * 0.05) * 2
     chunks: list[bytes] = []
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+    proc = desktop_popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
     if proc.stdout is None:
         proc.kill()
         raise AudioError("Fixed capture did not provide an output stream.")
@@ -437,6 +396,50 @@ def record_fixed(config: dict, seconds: float) -> Path:
             proc.kill()
             proc.wait(timeout=2)
         proc.stdout.close()
+    fd, name = tempfile.mkstemp(prefix="voice-agent-", suffix=".wav", dir=str(CACHE_DIR))
+    os.close(fd)
+    path = Path(name)
+    _write_wav(path, chunks, rate)
+    return path
+
+
+def _record_sounddevice_fixed(rate: int, source: str, seconds: float) -> Path:
+    try:
+        import sounddevice as sd
+    except (ImportError, OSError) as exc:
+        raise AudioError("sounddevice recording requires requirements-streaming.txt.") from exc
+
+    chunk_samples = max(1, int(rate * 0.02))
+    audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=100)
+
+    def callback(indata, frames, time_info, status) -> None:
+        try:
+            audio_queue.put_nowait(bytes(indata))
+        except queue.Full:
+            pass
+
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + seconds
+    try:
+        with sd.RawInputStream(
+            samplerate=rate,
+            blocksize=chunk_samples,
+            channels=1,
+            dtype="int16",
+            device=source or None,
+            callback=callback,
+        ):
+            while time.monotonic() < deadline:
+                try:
+                    chunks.append(audio_queue.get(timeout=min(0.25, max(0.01, deadline - time.monotonic()))))
+                except queue.Empty:
+                    continue
+    except Exception as exc:
+        raise AudioError(f"Sounddevice fixed recording failed: {exc}") from exc
+
+    if not chunks:
+        raise AudioError("Sounddevice returned no audio data.")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix="voice-agent-", suffix=".wav", dir=str(CACHE_DIR))
     os.close(fd)
     path = Path(name)

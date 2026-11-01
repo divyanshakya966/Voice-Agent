@@ -14,9 +14,11 @@ The project does not include analytics, crash reporting, telemetry, or a cloud A
 
 ## Network access
 
-The agent itself makes no network requests during a voice command unless you change the configuration. Network behavior comes from:
+The agent is local-first, but some confirmed tools use the network. Network behavior comes from:
 
 - The Ollama endpoint. If `llm.url` is remote, prompts and tool results leave the machine.
+- `web_search`, which sends the query to DuckDuckGo after confirmation.
+- Optional `browser_open` and `browser_interact`, which contact allowlisted HTTPS domains after confirmation.
 - `run_check` when `agent.sandbox_network` is explicitly enabled.
 - The setup script, which downloads whisper.cpp, a Whisper model, Piper, and a Piper voice.
 
@@ -34,6 +36,9 @@ With XDG defaults:
 | Binaries and models | `~/.local/share/voice-agent/` | Downloaded or built locally |
 | Audit log | `~/.local/state/voice-agent/audit.jsonl` | Mode `0600`, JSON Lines |
 | File backups | `~/.local/state/voice-agent/backups/` | Created before writes and patches |
+| Reminders | `~/.local/state/voice-agent/reminders.json` | Mode `0600`, local text and due times |
+| Email drafts | `~/.local/state/voice-agent/email-drafts/` | Mode `0600` `.eml` files; never sent automatically |
+| Browser profile | `~/.local/share/voice-agent/browser-profile/` | Optional Playwright profile when browser support is enabled |
 | Temporary audio | `~/.cache/voice-agent/` and the system temp directory | Deleted after transcription in the wake session |
 | Screenshots | `~/Pictures/Screenshots/` | Created by the `screenshot` tool |
 | Clipboard | Desktop clipboard | Changed by `clipboard_write` |
@@ -70,10 +75,12 @@ Delete the audit log:
 rm -f ~/.local/state/voice-agent/audit.jsonl
 ```
 
-Delete backups:
+Delete backups, reminders, and email drafts:
 
 ```bash
 rm -rf ~/.local/state/voice-agent/backups
+rm -f ~/.local/state/voice-agent/reminders.json
+rm -rf ~/.local/state/voice-agent/email-drafts
 ```
 
 Delete all local runtime data, including downloaded models and binaries:

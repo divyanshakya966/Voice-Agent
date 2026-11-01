@@ -49,8 +49,44 @@ def run(
     )
 
 
+def _flatpak_host_bridge() -> str | None:
+    if not Path("/run/host/usr/bin").is_dir():
+        return None
+    if not (os.environ.get("FLATPAK_ID") or Path("/.flatpak-info").is_file()):
+        return None
+    return shutil.which("flatpak-spawn")
+
+
+def desktop_command(argv: list[str]) -> list[str]:
+    bridge = _flatpak_host_bridge()
+    if bridge and argv and argv[0] != bridge:
+        return [bridge, "--host", *argv]
+    return argv
+
+
+def desktop_run(
+    argv: list[str],
+    *,
+    timeout: float | None = 30,
+    input_text: str | None = None,
+    cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return run(desktop_command(argv), timeout=timeout, input_text=input_text, cwd=cwd, env=env)
+
+
+def desktop_popen(argv: list[str], **kwargs):
+    return subprocess.Popen(desktop_command(argv), **kwargs)
+
+
 def which(name: str) -> str | None:
-    return shutil.which(name)
+    local = shutil.which(name)
+    if local:
+        return local
+    bridge = _flatpak_host_bridge()
+    if bridge and (Path("/run/host/usr/bin") / name).is_file():
+        return name
+    return None
 
 
 def trim(text: str, limit: int) -> str:
@@ -60,10 +96,11 @@ def trim(text: str, limit: int) -> str:
 
 
 def notify(title: str, body: str = "", urgency: str = "normal") -> None:
-    if not which("notify-send"):
-        return
     try:
-        run(["notify-send", "--app-name=Jarvis", f"--urgency={urgency}", title, body], timeout=5)
+        if which("notify-send"):
+            desktop_run(["notify-send", "--app-name=Jarvis", f"--urgency={urgency}", title, body], timeout=5)
+        elif which("kdialog"):
+            desktop_run(["kdialog", "--title", title, "--passivepopup", body or title, "8"], timeout=5)
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -76,6 +113,12 @@ def atomic_write(path: Path, data: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".voice-agent.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+    try:
+        os.fchmod(fd, mode)
+        handle = os.fdopen(fd, "w", encoding="utf-8", newline="")
+    except Exception:
+        os.close(fd)
+        raise
+    with handle:
         handle.write(data)
     os.replace(tmp, path)
