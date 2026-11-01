@@ -11,12 +11,12 @@
 ┌──────────┐   text   ┌──────────────┐   prompt  ┌───────────────┐
 │ Speakers │ ◀─────── │ Piper / TTS  │ ◀──────── │ Agent + Ollama│
 └──────────┘          └──────────────┘   answer  └──────┬────────┘
-                                                      │ tool call
-                                                      ▼
-                                       ┌──────────────────────────┐
-                                       │ Tool registry + policy   │
-                                       │ confirmations + sandbox  │
-                                       └──────────────────────────┘
+                                                        │ tool call
+                                                        ▼
+                                      ┌──────────────────────────┐
+                                      │ Tool registry + policy   │
+                                      │ confirmations + sandbox  │
+                                      └──────────────────────────┘
 ```
 
 A wake session preloads the configured Ollama model while Jarvis speaks its greeting, then remains active until the user invokes `voice-agent stop` or speaks an exit phrase:
@@ -78,6 +78,9 @@ The default `parec` capture path uses an adaptive threshold:
 - Apply `audio.noise_multiplier` with a minimum and maximum clamp.
 - Require `audio.speech_chunks` consecutive chunks above the threshold.
 - Stop after `audio.silence_ms` below the threshold or `audio.max_seconds` of speech.
+- Stop waiting for speech after `audio.no_speech_timeout_ms` following calibration.
+
+Endpoint decisions terminate the capture process immediately; the outer watchdog is only a final safety fallback.
 
 If the default capture path is noisy, increase `audio.noise_multiplier` or set a specific `audio.source`. If speech is missed, lower `audio.min_rms`. The optional `sounddevice` path uses WebRTC VAD instead of the adaptive RMS threshold.
 

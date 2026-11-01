@@ -112,7 +112,8 @@ def record_utterance(
     min_rms = float(cfg_get(config, "audio.min_rms", 180))
     noise_multiplier = float(cfg_get(config, "audio.noise_multiplier", 2.8))
     speech_chunks_needed = max(1, int(cfg_get(config, "audio.speech_chunks", 3)))
-    silence_ms = int(silence_ms if silence_ms is not None else cfg_get(config, "audio.silence_ms", 5000))
+    silence_ms = int(silence_ms if silence_ms is not None else cfg_get(config, "audio.silence_ms", 4500))
+    no_speech_timeout_ms = int(cfg_get(config, "audio.no_speech_timeout_ms", 5000))
     max_seconds = float(max_seconds if max_seconds is not None else cfg_get(config, "audio.max_seconds", 20))
     start_timeout = float(start_timeout if start_timeout is not None else cfg_get(config, "audio.start_timeout", 6))
     source = str(cfg_get(config, "audio.source", "") or "")
@@ -163,6 +164,7 @@ def record_utterance(
     last_data = started_at
     buffer = b""
     ready_notified = False
+    calibrated_at = 0.0
 
     print("Listening...", file=sys.stderr, flush=True)
     try:
@@ -191,6 +193,7 @@ def record_utterance(
                 break
             last_data = time.monotonic()
             buffer += data
+            stop_capture = False
             while len(buffer) >= chunk_bytes:
                 chunk = buffer[:chunk_bytes]
                 buffer = buffer[chunk_bytes:]
@@ -204,6 +207,7 @@ def record_utterance(
                         noise = ordered[max(0, int(len(ordered) * 0.2) - 1)] if ordered else 0.0
                         threshold = max(min_rms, min(noise * noise_multiplier, 3200.0))
                         calibrated = True
+                        calibrated_at = time.monotonic()
                         if capture_ready and not ready_notified:
                             capture_ready()
                             ready_notified = True
@@ -222,7 +226,11 @@ def record_utterance(
                             speech_started()
                         chunks.extend(pre_roll)
                         pre_roll.clear()
-                    elif elapsed > start_timeout:
+                    elif time.monotonic() - calibrated_at >= min(
+                        start_timeout,
+                        max(0.0, no_speech_timeout_ms / 1000),
+                    ):
+                        stop_capture = True
                         break
                 else:
                     chunks.append(chunk)
@@ -231,12 +239,17 @@ def record_utterance(
                     else:
                         silence_run += 1
                     if silence_run * chunk_ms >= silence_ms:
+                        stop_capture = True
                         break
                     if elapsed - speech_started_at >= max_seconds:
+                        stop_capture = True
                         break
+            if stop_capture:
+                break
             if not calibrated and time.monotonic() - started_at > (calibration_ms / 1000 + 1.0):
                 calibrated = True
                 threshold = max(min_rms, 250.0)
+                calibrated_at = time.monotonic()
                 if capture_ready and not ready_notified:
                     capture_ready()
                     ready_notified = True

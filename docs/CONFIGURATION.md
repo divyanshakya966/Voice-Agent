@@ -130,7 +130,8 @@ If a configured executable is missing, the code can fall back to a binary on `PA
 | `min_rms` | `180` | Minimum speech threshold |
 | `noise_multiplier` | `2.8` | Multiplier applied to the measured noise floor |
 | `speech_chunks` | `3` | Consecutive chunks above threshold before speech starts; used by both backends |
-| `silence_ms` | `5000` | Silence duration that ends an utterance |
+| `silence_ms` | `4500` | Silence duration that ends a general utterance after speech is detected |
+| `no_speech_timeout_ms` | `5000` | Maximum wait for speech after ambient-noise calibration |
 | `wake_silence_ms` | `900` | Silence duration that ends each continuous wake turn |
 | `max_seconds` | `20` | Maximum speech duration after detection |
 | `start_timeout` | `6` | Maximum wait for speech to begin |
