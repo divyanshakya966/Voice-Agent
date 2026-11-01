@@ -44,6 +44,7 @@ With XDG defaults:
 | Clipboard | Desktop clipboard | Changed by `clipboard_write` |
 
 The audit log can include:
+
 - The user transcript
 - Model and tool decisions
 - Tool arguments
