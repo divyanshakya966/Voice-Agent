@@ -397,9 +397,7 @@ def _wake(args) -> int:
     config = load_config()
     config["llm"] = dict(config.get("llm", {}))
     config["llm"]["keep_alive"] = "30m"
-    config["llm"]["num_predict"] = min(int(config["llm"].get("num_predict", 192)), 192)
     config["tts"] = dict(config.get("tts", {}))
-    config["tts"]["max_chars"] = min(int(config["tts"].get("max_chars", 350)), 350)
     status_turn = {"tool": False}
     acknowledgement_thread: threading.Thread | None = None
 

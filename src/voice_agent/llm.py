@@ -58,7 +58,13 @@ def loaded_models(config: dict) -> list[dict]:
     return list(parsed.get("models", []))
 
 
-def chat(config: dict, messages: list[dict], tools: list[dict] | None = None, model: str | None = None) -> dict:
+def chat(
+    config: dict,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    model: str | None = None,
+    num_predict: int | None = None,
+) -> dict:
     model = model or str(cfg_get(config, "llm.model", "qwen3:1.7b"))
     payload: dict = {
         "model": model,
@@ -69,7 +75,7 @@ def chat(config: dict, messages: list[dict], tools: list[dict] | None = None, mo
         "options": {
             "temperature": float(cfg_get(config, "llm.temperature", 0.2)),
             "num_ctx": int(cfg_get(config, "llm.num_ctx", 4096)),
-            "num_predict": int(cfg_get(config, "llm.num_predict", 192)),
+            "num_predict": int(num_predict if num_predict is not None else cfg_get(config, "llm.num_predict", 192)),
         },
     }
     if tools:

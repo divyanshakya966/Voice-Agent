@@ -51,7 +51,7 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
     "enabled": true,
     "engine": "piper",
     "fallback": "espeak-ng",
-    "max_chars": 350,
+    "max_chars": 800,
     "timeout": 60,
     "status_updates": true,
     "acknowledgement": true
@@ -61,7 +61,12 @@ The paths below use XDG defaults. They are examples, not values copied from a pa
     "model": "qwen3:1.7b",
     "keep_alive": "30m",
     "num_ctx": 4096,
-    "num_predict": 192,
+    "num_predict": 256,
+    "response_profiles": {
+      "brief": {"num_predict": 96},
+      "normal": {"num_predict": 256},
+      "detailed": {"num_predict": 512}
+    },
     "temperature": 0.2,
     "timeout": 180,
     "max_steps": 6,
@@ -161,12 +166,12 @@ For browser automation, install `requirements-browser.txt` and download the sele
 | `enabled` | `true` | Speak answers |
 | `engine` | `piper` | Primary TTS engine |
 | `fallback` | `espeak-ng` | Fallback engine |
-| `max_chars` | `350` | Maximum spoken text length before truncation |
+| `max_chars` | `800` | Maximum size of each spoken chunk; longer natural-language responses are spoken in multiple chunks |
 | `timeout` | `60` | TTS subprocess timeout |
 | `status_updates` | `true` | Speak short progress cues in wake mode, including acknowledgement after captured audio and working on a request; empty or non-speech input remains silent |
 | `acknowledgement` | `true` | Speak a short acknowledgement immediately after capture while transcription runs |
 
-Spoken text removes Markdown, code fences, URLs, and some formatting. Long responses are truncated at a sentence boundary when possible.
+Spoken text removes Markdown, code fences, URLs, and some formatting. Long natural-language responses are split at sentence and word boundaries and spoken completely. Code, diffs, and raw tables are summarized rather than read character by character; the full response remains available in terminal output.
 
 `engine` selects the primary backend and `fallback` is tried only if the primary is unavailable. Set `engine` to `piper` or an `espeak-ng` executable name. Set either value to `none` or `disabled` to skip that stage; set `tts.enabled` to `false` to disable speech entirely. The engine setting is honored at runtime, not just documented.
 
@@ -186,7 +191,8 @@ Jarvis uses the locally configured Piper voice. To use another legally obtained 
 | `model` | `qwen3:1.7b` | Default model |
 | `keep_alive` | `30m` | How long Ollama keeps the model loaded |
 | `num_ctx` | `4096` | Context window |
-| `num_predict` | `192` | Maximum generated tokens per turn |
+| `num_predict` | `256` | Default maximum generated tokens per turn; obvious brief, normal, and detailed requests use bounded per-request budgets of 96, 256, and 512 tokens respectively |
+| `response_profiles` | See example | Per-request profile overrides for `brief`, `normal`, and `detailed`; each profile accepts `num_predict` and an optional prompt `style` |
 | `temperature` | `0.2` | Sampling temperature |
 | `timeout` | `180` | HTTP timeout in seconds |
 | `max_steps` | `6` | Maximum model/tool turns |

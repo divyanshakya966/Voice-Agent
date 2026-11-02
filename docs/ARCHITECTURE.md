@@ -29,13 +29,13 @@ A wake session preloads the configured Ollama model while Jarvis speaks its gree
 6. Optionally read the transcript aloud and require a bounded yes/no confirmation when enabled.
 7. Send the transcript to the local Ollama model with the tool schemas.
 8. Validate and execute any requested tool calls.
-9. Return tool results to the model for a short spoken answer.
-10. Speak the answer with Piper, falling back to `espeak-ng`.
+9. Return tool results to the model for a profile-sized answer: brief, normal, or detailed.
+10. Sanitize the complete answer and speak natural-language chunks sequentially with Piper, falling back to `espeak-ng` for failed chunks.
 11. Keep Ollama warm for `llm.keep_alive` (default `30m`) and unload it when stopped.
 
 When `tts.status_updates` is enabled, the wake session gives a short `Okay.` acknowledgement after captured audio, reports model warmup problems, and speaks a brief notice before the first safe tool runs. Empty captures and known non-speech transcriptions such as noise, music, applause, silence, or unintelligible audio are ignored without a spoken retry. If `stt.confirm_transcript` is enabled, the session reads the transcript back and waits for confirmation before model processing. Unclear confirmations are retried within the configured limit; rejected requests return to listening without reaching the model. Voice confirmations for dangerous tools are controlled separately by `agent.confirmation` and remain independent of transcript confirmation. These cues respect `tts.enabled` and can be disabled independently from spoken answers.
 
-The microphone is inactive before `wake` starts. A wake session retains a bounded conversation history between turns; both message count and character budget limit retained history, so stale large tool results do not crowd out the current request. History is in memory only and is discarded when the process exits. The stop command can interrupt capture and speech playback.
+The microphone is inactive before `wake` starts. A wake session retains a bounded conversation history between turns; both message count and character budget limit retained history, so stale large tool results do not crowd out the current request. History is in memory only and is discarded when the process exits. The complete model response is retained for terminal output and history; TTS only transforms it for speech and checks for stop or barge-in between chunks.
 
 Optional `audio.barge_in` starts a second capture path during speech playback. It is disabled by default because this implementation has no acoustic echo cancellation; enable it only when the microphone does not hear the speakers strongly.
 

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from voice_agent import audio, cli, tts
-from voice_agent.agent import Agent
+from voice_agent.agent import Agent, response_profile
 from voice_agent.audit import AuditLog
 from voice_agent.stt import _clean
 from voice_agent.tools import build_registry, personal, system
@@ -70,6 +70,46 @@ class SecurityGuardTests(unittest.TestCase):
         with patch.object(llm, "_request", side_effect=lambda config, path, payload, timeout=None: captured.append(payload) or {"message": {}}):
             llm.chat({}, [{"role": "user", "content": "hello"}])
         self.assertEqual(captured[0]["options"]["num_predict"], 192)
+
+    def test_llm_accepts_per_request_generation_limit(self) -> None:
+        from voice_agent import llm
+
+        captured = []
+        with patch.object(
+            llm,
+            "_request",
+            side_effect=lambda config, path, payload, timeout=None: captured.append(payload) or {"message": {}},
+        ):
+            llm.chat({}, [{"role": "user", "content": "Explain this"}], num_predict=512)
+        self.assertEqual(captured[0]["options"]["num_predict"], 512)
+
+    def test_response_profile_scales_with_request(self) -> None:
+        self.assertEqual(response_profile("Hi Jarvis"), "brief")
+        self.assertEqual(response_profile("What is the current volume?"), "normal")
+        self.assertEqual(response_profile("Explain how the tool loop works in detail"), "detailed")
+
+    def test_detailed_agent_request_uses_detailed_generation_budget(self) -> None:
+        agent = Agent({"agent": {"allowed_read_roots": [], "write_roots": []}})
+        with patch(
+            "voice_agent.agent.llm.chat",
+            return_value={"content": "A detailed answer.", "tool_calls": []},
+        ) as chat:
+            self.assertEqual(agent.run("Explain how the tool loop works"), "A detailed answer.")
+        self.assertEqual(chat.call_args.kwargs["num_predict"], 512)
+
+    def test_agent_uses_configured_response_profile_budget(self) -> None:
+        agent = Agent(
+            {
+                "agent": {"allowed_read_roots": [], "write_roots": []},
+                "llm": {"response_profiles": {"detailed": {"num_predict": 700}}},
+            }
+        )
+        with patch(
+            "voice_agent.agent.llm.chat",
+            return_value={"content": "A configured answer.", "tool_calls": []},
+        ) as chat:
+            self.assertEqual(agent.run("Explain how the tool loop works"), "A configured answer.")
+        self.assertEqual(chat.call_args.kwargs["num_predict"], 700)
 
     def test_list_files_handles_symlinks_on_supported_python(self) -> None:
         with TemporaryDirectory() as directory:
@@ -213,6 +253,25 @@ class SecurityGuardTests(unittest.TestCase):
             )
         stdout.write.assert_not_called()
 
+    def test_tts_speaks_complete_long_response_in_chunks(self) -> None:
+        text = "First sentence is complete. Second sentence is also complete. Third sentence finishes the answer."
+        spoken = []
+
+        def capture(chunk, config, stop_requested=None):
+            spoken.append(chunk)
+            return True
+
+        with patch.object(tts, "_piper_speak", side_effect=capture):
+            self.assertTrue(
+                tts.speak(
+                    text,
+                    {"tts": {"engine": "piper", "fallback": "none", "max_chars": 50}},
+                )
+            )
+        self.assertGreater(len(spoken), 1)
+        self.assertEqual(" ".join(spoken), text)
+        self.assertTrue(all(not chunk.endswith("sentence") for chunk in spoken[:-1]))
+
     def test_background_status_speech_does_not_block_dispatch(self) -> None:
         started = threading.Event()
         release = threading.Event()
@@ -234,23 +293,23 @@ class SecurityGuardTests(unittest.TestCase):
     def test_transcript_confirmation_accepts_yes(self) -> None:
         with patch.object(cli.tts, "speak", return_value=True) as speak, patch.object(
             cli, "record_utterance", return_value=Path("/tmp/confirmation.wav")
-        ), patch.object(cli.stt, "transcribe", return_value="yes"):
-            with patch.object(Path, "unlink"):
-                self.assertTrue(cli._confirm_transcript({"stt": {"confirm_transcript": True}}, "What time is it?"))
+        ), patch.object(cli.stt, "transcribe", return_value="yes"), patch.object(Path, "unlink"):
+            self.assertTrue(cli._confirm_transcript({"stt": {"confirm_transcript": True}}, "What time is it?"))
         self.assertIn("I heard:", speak.call_args.args[0])
 
     def test_transcript_confirmation_retries_unclear_response(self) -> None:
         answers = iter(["maybe", "no"])
         with patch.object(cli.tts, "speak", return_value=True) as speak, patch.object(
             cli, "record_utterance", side_effect=[Path("/tmp/one.wav"), Path("/tmp/two.wav")]
-        ), patch.object(cli.stt, "transcribe", side_effect=lambda _path, _config: next(answers)):
-            with patch.object(Path, "unlink"):
-                self.assertFalse(
-                    cli._confirm_transcript(
-                        {"stt": {"confirm_transcript": True, "confirmation_retries": 1}}, "Play music"
-                    )
+        ), patch.object(cli.stt, "transcribe", side_effect=lambda _path, _config: next(answers)), patch.object(
+            Path, "unlink"
+        ):
+            self.assertFalse(
+                cli._confirm_transcript(
+                    {"stt": {"confirm_transcript": True, "confirmation_retries": 1}}, "Play music"
                 )
-        self.assertEqual(speak.call_count, 2)
+            )
+            self.assertEqual(speak.call_count, 2)
 
     def test_transcript_confirmation_is_disabled_by_default(self) -> None:
         with patch.object(cli.tts, "speak") as speak, patch.object(cli, "record_utterance") as record:
