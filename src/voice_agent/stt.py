@@ -14,10 +14,18 @@ class STTError(RuntimeError):
 
 
 _JUNK = re.compile(
-    r"(?:\[\s*(?:blank_audio|silence|music|applause|noise|inaudible)\s*\]"
+    r"(?:\[\s*(?:blank_audio|silence|music|applause|noise|inaudible|"
+    r"unintelligible|background noise|static|disturbance)\s*\]"
     r"|\[\s*non[- ]english speech\s*\]"
-    r"|\(\s*(?:silence|music|applause|noise|inaudible)\s*\)"
+    r"|\(\s*(?:silence|music|applause|noise|inaudible|unintelligible|"
+    r"background noise|static|disturbance)\s*\)"
     r"|\(\s*speaking in (?:a )?foreign language\s*\))",
+    re.IGNORECASE,
+)
+_NON_SPEECH_ONLY = re.compile(
+    r"(?:blank audio|silence|music|applause|noise|inaudible|unintelligible|"
+    r"background noise|static|disturbance|non[- ]english speech|"
+    r"speaking in (?:a )?foreign language)[.!?]*",
     re.IGNORECASE,
 )
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -37,7 +45,8 @@ def _clean(text: str) -> str:
     text = _JUNK.sub(" ", text)
     text = re.sub(r"^\s*\[[0-9:.\s\->]+\]\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    text = text.strip()
+    return "" if _NON_SPEECH_ONLY.fullmatch(text) else text
 
 
 def transcribe(wav_path: str | Path, config: dict) -> str:

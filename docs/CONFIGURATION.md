@@ -163,14 +163,14 @@ For browser automation, install `requirements-browser.txt` and download the sele
 | `fallback` | `espeak-ng` | Fallback engine |
 | `max_chars` | `350` | Maximum spoken text length before truncation |
 | `timeout` | `60` | TTS subprocess timeout |
-| `status_updates` | `true` | Speak short progress cues in wake mode, including when Jarvis is listening, acknowledging a request, and working on it |
+| `status_updates` | `true` | Speak short progress cues in wake mode, including acknowledgement after captured audio and working on a request; empty or non-speech input remains silent |
 | `acknowledgement` | `true` | Speak a short acknowledgement immediately after capture while transcription runs |
 
 Spoken text removes Markdown, code fences, URLs, and some formatting. Long responses are truncated at a sentence boundary when possible.
 
 `engine` selects the primary backend and `fallback` is tried only if the primary is unavailable. Set `engine` to `piper` or an `espeak-ng` executable name. Set either value to `none` or `disabled` to skip that stage; set `tts.enabled` to `false` to disable speech entirely. The engine setting is honored at runtime, not just documented.
 
-When `status_updates` is enabled, wake sessions speak when they are listening, after capture completes, before the first safe tool runs, when no transcript was recognized, and when the local model is still warming up. Voice confirmations for dangerous tools are controlled by `agent.confirmation` and always speak their prompt. Transcript readback confirmation is separate and disabled by default; set `stt.confirm_transcript` to `true` to enable it. Set `status_updates` to `false` to keep spoken answers but suppress progress cues.
+When `status_updates` is enabled, wake sessions speak after captured audio, before the first safe tool runs, and when the local model is still warming up. Empty captures and known non-speech transcription results are ignored silently. Voice confirmations for dangerous tools are controlled by `agent.confirmation` and always speak their prompt. Transcript readback confirmation is separate and disabled by default; set `stt.confirm_transcript` to `true` to enable it. Set `status_updates` to `false` to keep spoken answers but suppress progress cues.
 
 The post-transcription acknowledgement is intentionally brief (`Okay.`) and runs asynchronously while model processing starts. Set `tts.acknowledgement` to `false` if you want to remove this cue entirely; it remains serialized with tool-progress and final-response audio.
 

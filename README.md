@@ -68,6 +68,8 @@ Then open **System Settings → Keyboard → Shortcuts → Custom Shortcuts**, c
 
 Bind `wake` to Meta+Alt and `stop` to Meta+Space. The desktop entry itself does not force a global shortcut.
 
+During a wake session, silence and recognized non-speech input such as background noise, music, applause, or unintelligible audio are ignored silently. A short acknowledgement is spoken only after audio is captured for a request.
+
 ## Models
 
 The default is chosen for low latency and a permissive license. You can override it per command with `--model`.

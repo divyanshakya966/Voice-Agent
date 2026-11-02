@@ -41,7 +41,7 @@ Or use the absolute path printed by `./bin/voice-agent install-desktop`.
 
 If the default source is wrong, set `audio.source` in the config to the source name. If quiet speech is missed, lower `audio.min_rms`. If fan or room noise triggers detection, raise `audio.noise_multiplier` or `audio.min_rms`.
 
-The wake session waits up to `audio.start_timeout` and `audio.no_speech_timeout_ms` for speech, then stops each turn after `audio.wake_silence_ms` of silence or `audio.max_seconds` of speech. The general `audio.silence_ms` value is retained for non-wake capture paths.
+The wake session waits up to `audio.start_timeout` and `audio.no_speech_timeout_ms` for speech, then stops each turn after `audio.wake_silence_ms` of silence or `audio.max_seconds` of speech. An empty capture is silently discarded; the timeout is a polling interval, not a spoken retry. Known non-speech transcriptions such as noise, music, applause, silence, or unintelligible audio are also ignored. The general `audio.silence_ms` value is retained for non-wake capture paths.
 
 ## The agent cuts off too early
 

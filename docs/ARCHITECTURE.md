@@ -6,8 +6,8 @@
 ┌───────────┐   PCM    ┌──────────────┐   WAV    ┌──────────────┐
 │ Microphone│ ───────▶ │ Capture + VAD│ ───────▶ │ whisper.cpp  │
 └───────────┘          └──────────────┘          └──────┬───────┘
-                                                      │ transcript
-                                                      ▼
+                                                        │ transcript
+                                                        ▼
 ┌──────────┐   text   ┌──────────────┐   prompt  ┌───────────────┐
 │ Speakers │ ◀─────── │ Piper / TTS  │ ◀──────── │ Agent + Ollama│
 └──────────┘          └──────────────┘   answer  └──────┬────────┘
@@ -33,7 +33,7 @@ A wake session preloads the configured Ollama model while Jarvis speaks its gree
 10. Speak the answer with Piper, falling back to `espeak-ng`.
 11. Keep Ollama warm for `llm.keep_alive` (default `30m`) and unload it when stopped.
 
-When `tts.status_updates` is enabled, the wake session speaks while listening, gives a short `Okay.` acknowledgement after capture, reports unrecognized speech and model warmup problems, and speaks a brief notice before the first safe tool runs. If `stt.confirm_transcript` is enabled, the session reads the transcript back and waits for confirmation before model processing. Unclear confirmations are retried within the configured limit; rejected requests return to listening without reaching the model. Voice confirmations for dangerous tools are controlled separately by `agent.confirmation` and remain independent of transcript confirmation. These cues respect `tts.enabled` and can be disabled independently from spoken answers.
+When `tts.status_updates` is enabled, the wake session gives a short `Okay.` acknowledgement after captured audio, reports model warmup problems, and speaks a brief notice before the first safe tool runs. Empty captures and known non-speech transcriptions such as noise, music, applause, silence, or unintelligible audio are ignored without a spoken retry. If `stt.confirm_transcript` is enabled, the session reads the transcript back and waits for confirmation before model processing. Unclear confirmations are retried within the configured limit; rejected requests return to listening without reaching the model. Voice confirmations for dangerous tools are controlled separately by `agent.confirmation` and remain independent of transcript confirmation. These cues respect `tts.enabled` and can be disabled independently from spoken answers.
 
 The microphone is inactive before `wake` starts. A wake session retains a bounded conversation history between turns; both message count and character budget limit retained history, so stale large tool results do not crowd out the current request. History is in memory only and is discarded when the process exits. The stop command can interrupt capture and speech playback.
 

@@ -500,7 +500,6 @@ def _wake(args) -> int:
             if stop_requested():
                 session_stopped = True
                 break
-            _speak_status(config, "I'm listening.", stop_requested)
             capture_started = time.monotonic()
             wav = record_utterance(
                 config,
@@ -511,7 +510,6 @@ def _wake(args) -> int:
                 session_stopped = True
                 break
             if wav is None:
-                _speak_status(config, "I didn't hear anything. I'm listening again.", stop_requested)
                 continue
             agent.audit.write(
                 "timing",
@@ -541,8 +539,6 @@ def _wake(args) -> int:
             )
             if not transcript:
                 join_acknowledgement()
-                print("No transcript.", file=sys.stderr)
-                _speak_status(config, "Sorry, I did not catch that. Please try again.", stop_requested)
                 continue
             print(f"You: {transcript}")
             agent.audit.write("transcript", text=transcript)
